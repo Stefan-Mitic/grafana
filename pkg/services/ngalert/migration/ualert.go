@@ -2,6 +2,7 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/grafana/grafana/pkg/services/datasources"
 	"github.com/grafana/grafana/pkg/services/folder"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
+	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/secrets"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 	"github.com/grafana/grafana/pkg/setting"
@@ -34,19 +36,19 @@ type migration struct {
 	dialect migrator.Dialect
 	cfg     *setting.Cfg
 
-	seenUIDs deduplicator
-
-	info              InfoStore
-	store             db.DB
-	ruleStore         RuleStore
-	alertingStore     AlertingStore
-	encryptionService secrets.Service
-	dashboardService  dashboards.DashboardService
-	folderService     folder.Service
-	dsCacheService    datasources.CacheService
-
+	info                 InfoStore
+	store                db.DB
+	ruleStore            RuleStore
+	alertingStore        AlertingStore
+	encryptionService    secrets.Service
+	dashboardService     dashboards.DashboardService
+	folderService        folder.Service
+	dsCacheService       datasources.CacheService
 	folderPermissions    accesscontrol.FolderPermissionsService
 	dashboardPermissions accesscontrol.DashboardPermissionsService
+	orgService           org.Service
+
+	createdOrgFolderUids map[int64][]string
 }
 
 func newMigration(
@@ -62,10 +64,9 @@ func newMigration(
 	dsCacheService datasources.CacheService,
 	folderPermissions accesscontrol.FolderPermissionsService,
 	dashboardPermissions accesscontrol.DashboardPermissionsService,
+	orgService org.Service,
 ) *migration {
 	return &migration{
-		// We deduplicate for case-insensitive matching in MySQL-compatible backend flavours because they use case-insensitive collation.
-		seenUIDs:             deduplicator{set: make(map[string]struct{}), caseInsensitive: store.GetDialect().SupportEngine()},
 		log:                  log,
 		dialect:              store.GetDialect(),
 		cfg:                  cfg,
@@ -79,6 +80,9 @@ func newMigration(
 		dsCacheService:       dsCacheService,
 		folderPermissions:    folderPermissions,
 		dashboardPermissions: dashboardPermissions,
+		orgService:           orgService,
+
+		createdOrgFolderUids: make(map[int64][]string),
 	}
 }
 
@@ -87,12 +91,15 @@ type orgMigration struct {
 	orgID int64
 	log   log.Logger
 
-	dialect        migrator.Dialect
-	dataPath       string
-	dsCacheService datasources.CacheService
+	dialect           migrator.Dialect
+	store             db.DB
+	dataPath          string
+	dsCacheService    datasources.CacheService
+	encryptionService secrets.Service
 
 	folderHelper folderHelper
 
+	seenUIDs            deduplicator
 	silences            []*pb.MeshSilence
 	alertRuleTitleDedup map[string]deduplicator // Folder -> deduplicator (Title).
 }
@@ -103,102 +110,121 @@ func newOrgMigration(m *migration, orgID int64) *orgMigration {
 		orgID: orgID,
 		log:   m.log.New("orgID", orgID),
 
-		dialect:        m.dialect,
-		dataPath:       m.cfg.DataPath,
-		dsCacheService: m.dsCacheService,
+		store:             m.store,
+		dialect:           m.dialect,
+		dataPath:          m.cfg.DataPath,
+		dsCacheService:    m.dsCacheService,
+		encryptionService: m.encryptionService,
 
 		folderHelper: folderHelper{
-			info:                     m.info,
-			dialect:                  m.dialect,
-			folderService:            m.folderService,
-			folderPermissions:        m.folderPermissions,
-			dashboardPermissions:     m.dashboardPermissions,
-			permissionsMap:           make(map[int64]map[permissionHash]*folder.Folder),
-			folderCache:              make(map[int64]*folder.Folder),
-			newFolderCache:           make(map[int64]*folder.Folder),
-			dashboardPermissionCache: make(map[string][]accesscontrol.ResourcePermission),
-			folderPermissionCache:    make(map[string][]accesscontrol.ResourcePermission),
+			info:                  m.info,
+			dialect:               m.dialect,
+			orgID:                 orgID,
+			folderService:         m.folderService,
+			folderPermissions:     m.folderPermissions,
+			dashboardPermissions:  m.dashboardPermissions,
+			permissionsMap:        make(map[int64]map[permissionHash]*folder.Folder),
+			folderCache:           make(map[int64]*folder.Folder),
+			folderPermissionCache: make(map[string][]accesscontrol.ResourcePermission),
 		},
 
+		// We deduplicate for case-insensitive matching in MySQL-compatible backend flavours because they use case-insensitive collation.
+		seenUIDs:            deduplicator{set: make(map[string]struct{}), caseInsensitive: m.dialect.SupportEngine()},
 		silences:            make([]*pb.MeshSilence, 0),
 		alertRuleTitleDedup: make(map[string]deduplicator),
 	}
 }
 
-// Exec executes the migration.
-func (m *migration) Exec(ctx context.Context) error {
-	dashAlerts, err := m.slurpDashAlerts(ctx)
+func (m *migration) migrateOrg(ctx context.Context, orgID int64) error {
+	om := newOrgMigration(m, orgID)
+	rules := make(map[*models.AlertRule][]uidOrID)
+	om.log.Info("migrating alerts for organisation")
+
+	mappedAlerts, err := m.slurpDashAlerts(ctx, om.log, orgID)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get alerts for org %d: %w", orgID, err)
 	}
-	m.log.Info("Alerts found to migrate", "alerts", len(dashAlerts))
 
-	// Per org map of newly created rules to which notification channels it should send to.
-	rulesPerOrg := make(map[int64]map[*models.AlertRule][]uidOrID)
-
-	migrationsCache := make(map[int64]*orgMigration)
-	for _, da := range dashAlerts {
-		om, ok := migrationsCache[da.OrgId]
-		if !ok {
-			om = newOrgMigration(m, da.OrgId)
-			migrationsCache[da.OrgId] = om
-		}
-		dash, err := m.dashboardService.GetDashboard(ctx, &dashboards.GetDashboardQuery{ID: da.DashboardId, OrgID: da.OrgId})
+	for dashID, alerts := range mappedAlerts {
+		dash, err := m.dashboardService.GetDashboard(ctx, &dashboards.GetDashboardQuery{ID: dashID, OrgID: orgID})
 		if err != nil {
-			return fmt.Errorf("failed to get dashboard [ID: %d] for alert %s [ID: %d]: %w", da.DashboardId, da.Name, da.Id, err)
+			if errors.Is(err, dashboards.ErrDashboardNotFound) {
+				om.log.Warn(fmt.Sprintf("%d alerts found but have an unknown dashboard, skipping", len(alerts)), "dashboardID", dashID)
+				continue
+			}
+			return fmt.Errorf("failed to get dashboard [ID: %d]: %w", dashID, err)
 		}
-		l := om.log.New("dashboardTitle", dash.Title, "dashboardUID", dash.UID, "ruleID", da.Id, "ruleName", da.Name)
+		l := om.log.New("dashboardTitle", dash.Title, "dashboardUID", dash.UID)
 
 		f, err := om.folderHelper.getOrCreateMigratedFolder(ctx, l, dash)
 		if err != nil {
-			return fmt.Errorf("failed to get or create folder for alert %s [ID: %d] on dashboard %s [ID: %d]: %w", da.Name, da.Id, dash.Title, dash.ID, err)
-		}
-		alertRule, channels, err := om.migrateAlert(ctx, l, da, dash, f)
-		if err != nil {
-			return fmt.Errorf("failed to migrate alert %s [ID: %d] on dashboard %s [ID: %d]: %w", da.Name, da.Id, dash.Title, dash.ID, err)
+			return fmt.Errorf("failed to get or create folder for dashboard %s [ID: %d]: %w", dash.Title, dash.ID, err)
 		}
 
-		if _, ok := rulesPerOrg[alertRule.OrgID]; !ok {
-			rulesPerOrg[alertRule.OrgID] = make(map[*models.AlertRule][]uidOrID)
-		}
-		if _, ok := rulesPerOrg[alertRule.OrgID][alertRule]; !ok {
-			rulesPerOrg[alertRule.OrgID][alertRule] = channels
+		for _, da := range alerts {
+			l = l.New("ruleID", da.ID, "ruleName", da.Name)
+			alertRule, channels, err := om.migrateAlert(ctx, l, da, dash, f)
+			if err != nil {
+				return fmt.Errorf("failed to migrate alert %s [ID: %d] on dashboard %s [ID: %d]: %w", da.Name, da.ID, dash.Title, dash.ID, err)
+			}
+			rules[alertRule] = channels
 		}
 	}
 
-	orgFolderUids := make(map[int64][]string)
-	for _, om := range migrationsCache {
-		if len(om.silences) > 0 {
-			if err := om.writeSilencesFile(); err != nil {
-				m.log.Error("Alert migration error: failed to write silence file", "err", err)
-			}
-		}
-		folderUids := make([]string, 0, len(om.folderHelper.newFolderCache))
-		for _, f := range om.folderHelper.newFolderCache {
+	amConfig, err := om.setupAlertmanagerConfigs(ctx, rules)
+	if err != nil {
+		return err
+	}
+
+	// Validate the alertmanager configuration produced, this gives a chance to catch bad configuration at migration time.
+	// Validation between legacy and unified alerting can be different (e.g. due to bug fixes) so this would fail the migration in that case.
+	if err := om.validateAlertmanagerConfig(amConfig); err != nil {
+		return fmt.Errorf("failed to validate AlertmanagerConfig in orgId %d: %w", orgID, err)
+	}
+
+	err = m.insertRules(ctx, orgID, rules)
+	if err != nil {
+		return err
+	}
+
+	if err := om.writeSilencesFile(); err != nil {
+		m.log.Error("Failed to write silence file", "err", err)
+	}
+
+	m.log.Info("Writing alertmanager config", "orgID", orgID, "receivers", len(amConfig.AlertmanagerConfig.Receivers), "routes", len(amConfig.AlertmanagerConfig.Route.Routes))
+	if err := m.writeAlertmanagerConfig(ctx, orgID, amConfig); err != nil {
+		return fmt.Errorf("failed to write AlertmanagerConfig in orgId %d: %w", orgID, err)
+	}
+
+	if len(om.folderHelper.createdFolders) > 0 {
+		folderUids := make([]string, 0, len(om.folderHelper.createdFolders))
+		for _, f := range om.folderHelper.createdFolders {
 			folderUids = append(folderUids, f.UID)
 		}
-		orgFolderUids[om.orgID] = folderUids
-	}
-	err = m.info.setCreatedFolders(ctx, orgFolderUids)
-	if err != nil {
-		return err
+		m.createdOrgFolderUids[om.orgID] = folderUids
 	}
 
-	amConfigPerOrg, err := m.setupAlertmanagerConfigs(ctx, rulesPerOrg)
+	return nil
+}
+
+// Exec executes the migration.
+func (m *migration) Exec(ctx context.Context) error {
+	orgQuery := &org.SearchOrgsQuery{}
+	orgs, err := m.orgService.Search(ctx, orgQuery)
 	if err != nil {
-		return err
+		return fmt.Errorf("can't get org list: %w", err)
 	}
 
-	err = m.insertRules(ctx, rulesPerOrg)
-	if err != nil {
-		return err
-	}
-
-	for orgID, amConfig := range amConfigPerOrg {
-		m.log.Info("Writing alertmanager config", "orgID", orgID, "receivers", len(amConfig.AlertmanagerConfig.Receivers), "routes", len(amConfig.AlertmanagerConfig.Route.Routes))
-		if err := m.writeAlertmanagerConfig(ctx, orgID, amConfig); err != nil {
-			return err
+	for _, o := range orgs {
+		err := m.migrateOrg(ctx, o.ID)
+		if err != nil {
+			return fmt.Errorf("failed to migrate org %d: %w", o.ID, err)
 		}
+	}
+
+	err = m.info.setCreatedFolders(ctx, m.createdOrgFolderUids)
+	if err != nil {
+		return err
 	}
 
 	return nil

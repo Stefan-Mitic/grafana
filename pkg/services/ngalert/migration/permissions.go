@@ -52,20 +52,21 @@ var (
 type folderHelper struct {
 	info          InfoStore
 	dialect       migrator.Dialect
+	orgID         int64
 	folderService folder.Service
 
 	folderPermissions    accesscontrol.FolderPermissionsService
 	dashboardPermissions accesscontrol.DashboardPermissionsService
 
-	// Folders created for dashboards that have custom permissions. Parent Folder ID -> unique dashboard permission -> customer folder.
+	// Folder for a dashboards based on permissions. Parent Folder ID -> unique dashboard permission -> customer folder.
 	permissionsMap map[int64]map[permissionHash]*folder.Folder
+	// List of newly created folders.
+	createdFolders []*folder.Folder
 
 	// Org-specific caches.
-	generalFolder            *folder.Folder
-	folderCache              map[int64]*folder.Folder                      // Folder ID -> Folder.
-	newFolderCache           map[int64]*folder.Folder                      // Dashboard ID -> New Folder.
-	dashboardPermissionCache map[string][]accesscontrol.ResourcePermission // Dashboard UID -> Dashboard Permissions.
-	folderPermissionCache    map[string][]accesscontrol.ResourcePermission // Folder UID -> Folder Permissions.
+	generalFolder         *folder.Folder
+	folderCache           map[int64]*folder.Folder                      // Folder ID -> Folder.
+	folderPermissionCache map[string][]accesscontrol.ResourcePermission // Folder UID -> Folder Permissions.
 }
 
 // getMigrationUser returns a background user for the given orgID with permissions to execute migration-related tasks.
@@ -83,19 +84,14 @@ func getRevertUser(orgID int64) identity.Requester {
 // If the dashboard has custom permissions that affect access, this should be a new folder with migrated permissions relating to both the dashboard and parent folder.
 // Any dashboard that has greater read/write permissions for an orgRole/team/user compared to its folder will necessitate creating a new folder with the same permissions as the dashboard.
 func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Logger, dash *dashboards.Dashboard) (*folder.Folder, error) {
-	if f, ok := fh.newFolderCache[dash.ID]; ok {
-		return f, nil
-	}
-
 	dashFolder, err := fh.getFolder(ctx, dash)
 	if err != nil {
 		// If folder does not exist then the dashboard is an orphan. We migrate the alert to the general alerting folder.
 		l.Warn("Failed to find folder for dashboard. Migrate rule to the default folder", "missing_folder_id", dash.FolderID, "error", err)
-		migratedFolder, err := fh.getOrCreateGeneralAlertingFolder(ctx, dash.OrgID)
+		migratedFolder, err := fh.getOrCreateGeneralAlertingFolder(ctx, fh.orgID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get or create general folder: %w", err)
 		}
-		fh.newFolderCache[dash.ID] = migratedFolder
 		return migratedFolder, nil
 	}
 
@@ -135,7 +131,7 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 	if !ok {
 		folderName := generateAlertFolderName(dashFolder, hash)
 		l.Info("dashboard has custom permissions, create a new folder for alerts.", "newFolder", folderName)
-		f, err := fh.createFolder(ctx, dash.OrgID, folderName, newPerms)
+		f, err := fh.createFolder(ctx, fh.orgID, folderName, newPerms)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create folder: %w", err)
 		}
@@ -151,11 +147,9 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 		}
 
 		customFolders[hash] = f
-		fh.newFolderCache[dash.ID] = f
 		return f, nil
 	}
 
-	fh.newFolderCache[dash.ID] = customFolder
 	return customFolder, nil
 }
 
@@ -320,14 +314,10 @@ func (fh *folderHelper) getFolderPermissions(ctx context.Context, f *folder.Fold
 
 // getDashboardPermissions Get permissions for dashboard.
 func (fh *folderHelper) getDashboardPermissions(ctx context.Context, d *dashboards.Dashboard) ([]accesscontrol.ResourcePermission, error) {
-	if p, ok := fh.dashboardPermissionCache[d.UID]; ok {
-		return p, nil
-	}
-	p, err := fh.dashboardPermissions.GetPermissions(ctx, getMigrationUser(d.OrgID), d.UID)
+	p, err := fh.dashboardPermissions.GetPermissions(ctx, getMigrationUser(fh.orgID), d.UID)
 	if err != nil {
 		return nil, err
 	}
-	fh.dashboardPermissionCache[d.UID] = p
 	return p, nil
 }
 
@@ -339,15 +329,14 @@ func (fh *folderHelper) getFolder(ctx context.Context, dash *dashboards.Dashboar
 
 	if dash.FolderID <= 0 {
 		// Don't use general folder since it has no uid, instead we use a new "General Alerting" folder.
-		migratedFolder, err := fh.getOrCreateGeneralAlertingFolder(ctx, dash.OrgID)
+		migratedFolder, err := fh.getOrCreateGeneralAlertingFolder(ctx, fh.orgID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get or create general folder: %w", err)
 		}
-		fh.newFolderCache[dash.ID] = migratedFolder
 		return migratedFolder, err
 	}
 
-	f, err := fh.folderService.Get(ctx, &folder.GetFolderQuery{ID: &dash.FolderID, OrgID: dash.OrgID, SignedInUser: getMigrationUser(dash.OrgID)})
+	f, err := fh.folderService.Get(ctx, &folder.GetFolderQuery{ID: &dash.FolderID, OrgID: fh.orgID, SignedInUser: getMigrationUser(fh.orgID)})
 	if err != nil {
 		if errors.Is(err, dashboards.ErrFolderNotFound) {
 			return nil, fmt.Errorf("folder with id %v not found", dash.FolderID)
@@ -398,6 +387,8 @@ func (fh *folderHelper) createFolder(ctx context.Context, orgID int64, title str
 			return nil, fmt.Errorf("failed to set permissions: %w", err)
 		}
 	}
+
+	fh.createdFolders = append(fh.createdFolders, f)
 
 	return f, nil
 }

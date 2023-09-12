@@ -14,13 +14,11 @@ func newTestMigration(t *testing.T) *migration {
 	t.Helper()
 
 	return &migration{
-		log: &logtest.Fake{},
-		seenUIDs: deduplicator{
-			set: make(map[string]struct{}),
-		},
-		dialect:           migrator.NewMysqlDialect(), // Could allow tests to determine this.
-		cfg:               &setting.Cfg{},
-		encryptionService: fake_secrets.NewFakeSecretsService(),
+		log:                  &logtest.Fake{},
+		dialect:              migrator.NewMysqlDialect(), // Could allow tests to determine this.
+		cfg:                  &setting.Cfg{},
+		encryptionService:    fake_secrets.NewFakeSecretsService(),
+		createdOrgFolderUids: make(map[int64][]string),
 	}
 }
 

@@ -4,70 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/grafana/grafana/pkg/infra/db"
+	"github.com/grafana/grafana/pkg/infra/log"
+	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 )
 
-type dashAlert struct {
-	Id          int64
-	OrgId       int64
-	DashboardId int64
-	PanelId     int64
-	Name        string
-	Message     string
-	Frequency   int64
-	For         time.Duration
-	State       string
-
-	Settings       json.RawMessage
-	ParsedSettings *dashAlertSettings
-}
-
-var slurpDashSQL = `
-SELECT id,
-	org_id,
-	dashboard_id,
-	panel_id,
-	org_id,
-	name,
-	message,
-	frequency,
-	%s,
-	state,
-	settings
-FROM
-	alert
-WHERE org_id IN (SELECT id from org)
-	AND dashboard_id IN (SELECT id from dashboard)
-`
-
-// slurpDashAlerts loads all alerts from the alert database table into
-// the dashAlert type. If there are alerts that belong to either organization or dashboard that does not exist, those alerts will not be returned/
-// Additionally it unmarshals the json settings for the alert into the
-// ParsedSettings property of the dash alert.
-func (m *migration) slurpDashAlerts(ctx context.Context) ([]dashAlert, error) {
-	var dashAlerts []dashAlert
+// slurpDashAlerts loads all legacy dashboard alerts for the given org mapped by dashboard id.
+func (m *migration) slurpDashAlerts(ctx context.Context, l log.Logger, orgID int64) (map[int64][]*legacymodels.Alert, error) {
+	var dashAlerts []*legacymodels.Alert
 	err := m.store.WithDbSession(ctx, func(sess *db.Session) error {
-		err := sess.SQL(fmt.Sprintf(slurpDashSQL, m.dialect.Quote("for"))).Find(&dashAlerts)
-		if err != nil {
-			return err
-		}
-
-		for i := range dashAlerts {
-			err = json.Unmarshal(dashAlerts[i].Settings, &dashAlerts[i].ParsedSettings)
-			if err != nil {
-				da := dashAlerts[i]
-				return fmt.Errorf("failed to parse alert rule ID:%d, name:'%s', orgID:%d: %w", da.Id, da.Name, da.OrgId, err)
-			}
-		}
-		return nil
+		return sess.SQL("select * from alert WHERE org_id = ?", orgID).Find(&dashAlerts)
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not load alerts: %w", err)
 	}
 
-	return dashAlerts, nil
+	l.Info("Alerts found to migrate", "alerts", len(dashAlerts))
+	mappedAlerts := make(map[int64][]*legacymodels.Alert)
+	for _, alert := range dashAlerts {
+		mappedAlerts[alert.DashboardID] = append(mappedAlerts[alert.DashboardID], alert)
+	}
+
+	return mappedAlerts, nil
 }
 
 // dashAlertSettings is a type for the JSON that is in the settings field of

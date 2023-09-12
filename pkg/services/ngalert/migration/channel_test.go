@@ -90,7 +90,7 @@ func TestFilterReceiversForAlert(t *testing.T) {
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			m := newTestMigration(t)
+			m := newTestOrgMigration(t, 1)
 			res := m.filterReceiversForAlert("", tt.channelIds, tt.receivers, tt.defaultReceivers)
 
 			require.Equal(t, tt.expected, res)
@@ -262,7 +262,7 @@ func TestCreateReceivers(t *testing.T) {
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			m := newTestMigration(t)
+			m := newTestOrgMigration(t, 1)
 			recvMap, recvs, err := m.createReceivers(tt.allChannels)
 			if tt.expErr != nil {
 				require.Error(t, err)
@@ -293,7 +293,7 @@ func TestMigrateNotificationChannelSecureSettings(t *testing.T) {
 		require.NoError(t, err)
 		return string(raw)
 	}
-	decryptFn := func(data string, m *migration) string {
+	decryptFn := func(data string, m *orgMigration) string {
 		decoded, err := base64.StdEncoding.DecodeString(data)
 		require.NoError(t, err)
 		raw, err := m.encryptionService.Decrypt(context.Background(), decoded)
@@ -377,7 +377,7 @@ func TestMigrateNotificationChannelSecureSettings(t *testing.T) {
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			m := newTestMigration(t)
+			m := newTestOrgMigration(t, 1)
 			recv, err := m.createNotifier(tt.channel)
 			if tt.expErr != nil {
 				require.Error(t, err)
@@ -405,7 +405,7 @@ func TestMigrateNotificationChannelSecureSettings(t *testing.T) {
 				secureSettings, err := channels_config.GetSecretKeysForContactPointType(nType)
 				require.NoError(t, err)
 				t.Run(nType, func(t *testing.T) {
-					m := newTestMigration(t)
+					m := newTestOrgMigration(t, 1)
 					channel := gen(nType, func(channel *legacymodels.AlertNotification) {
 						for _, key := range secureSettings {
 							channel.SecureSettings[key] = []byte(legacyEncryptFn("secure " + key))
@@ -436,7 +436,7 @@ func TestMigrateNotificationChannelSecureSettings(t *testing.T) {
 					continue
 				}
 				t.Run(nType, func(t *testing.T) {
-					m := newTestMigration(t)
+					m := newTestOrgMigration(t, 1)
 
 					channel := gen(nType, func(channel *legacymodels.AlertNotification) {
 						for _, key := range secureSettings {
@@ -535,7 +535,7 @@ func TestCreateDefaultRouteAndReceiver(t *testing.T) {
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			m := newTestMigration(t)
+			m := newTestOrgMigration(t, 1)
 			recv, route, err := m.createDefaultRouteAndReceiver(tt.defaultChannels)
 			if tt.expErr != nil {
 				require.Error(t, err)

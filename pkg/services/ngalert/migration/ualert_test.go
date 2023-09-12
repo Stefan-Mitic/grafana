@@ -60,7 +60,7 @@ func Test_validateAlertmanagerConfig(t *testing.T) {
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			mg := newTestMigration(t)
+			mg := newTestOrgMigration(t, 1)
 
 			config := configFromReceivers(t, tt.receivers)
 			require.NoError(t, encryptSecureSettings(config, mg)) // make sure we encrypt the settings
@@ -87,7 +87,7 @@ func configFromReceivers(t *testing.T, receivers []*apimodels.PostableGrafanaRec
 	}
 }
 
-func encryptSecureSettings(c *apimodels.PostableUserConfig, m *migration) error {
+func encryptSecureSettings(c *apimodels.PostableUserConfig, m *orgMigration) error {
 	for _, r := range c.AlertmanagerConfig.Receivers {
 		for _, gr := range r.GrafanaManagedReceivers {
 			err := m.encryptSecureSettings(gr.SecureSettings)

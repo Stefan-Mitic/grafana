@@ -17,6 +17,7 @@ import (
 	"github.com/grafana/grafana/pkg/services/folder"
 	"github.com/grafana/grafana/pkg/services/ngalert/notifier"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
+	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/secrets"
 	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/setting"
@@ -42,6 +43,7 @@ type MigrationService struct {
 	dataSourceCache      datasources.CacheService
 	folderPermissions    accesscontrol.FolderPermissionsService
 	dashboardPermissions accesscontrol.DashboardPermissionsService
+	orgService           org.Service
 }
 
 func ProvideService(
@@ -56,6 +58,7 @@ func ProvideService(
 	dataSourceCache datasources.CacheService,
 	folderPermissions accesscontrol.FolderPermissionsService,
 	dashboardPermissions accesscontrol.DashboardPermissionsService,
+	orgService org.Service,
 ) (*MigrationService, error) {
 	return &MigrationService{
 		lock:                 lock,
@@ -71,6 +74,7 @@ func ProvideService(
 		dataSourceCache:      dataSourceCache,
 		folderPermissions:    folderPermissions,
 		dashboardPermissions: dashboardPermissions,
+		orgService:           orgService,
 	}, nil
 }
 
@@ -127,6 +131,7 @@ func (ms *MigrationService) Run(ctx context.Context) error {
 				ms.dataSourceCache,
 				ms.folderPermissions,
 				ms.dashboardPermissions,
+				ms.orgService,
 			)
 
 			err = mg.Exec(ctx)

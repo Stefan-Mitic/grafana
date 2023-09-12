@@ -10,6 +10,7 @@ import (
 
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/log/logtest"
+	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
 )
@@ -92,22 +93,25 @@ func TestMigrateAlertRuleQueries(t *testing.T) {
 func TestAddMigrationInfo(t *testing.T) {
 	tt := []struct {
 		name                string
-		alert               *dashAlert
+		alert               *legacymodels.Alert
 		dashboard           string
 		expectedLabels      map[string]string
 		expectedAnnotations map[string]string
 	}{
 		{
-			name:                "when alert rule tags are a JSON array, they're ignored.",
-			alert:               &dashAlert{Id: 43, ParsedSettings: &dashAlertSettings{AlertRuleTags: []string{"one", "two", "three", "four"}}, PanelId: 42},
+			name: "when alert rule tags are a JSON array, they're ignored.",
+			alert: &legacymodels.Alert{ID: 43, PanelID: 42, Settings: simplejson.NewFromAny(map[string]interface{}{
+				"alertRuleTags": []string{"one", "two", "three", "four"},
+			})},
 			dashboard:           "dashboard",
 			expectedLabels:      map[string]string{},
 			expectedAnnotations: map[string]string{"__alertId__": "43", "__dashboardUid__": "dashboard", "__panelId__": "42"},
 		},
 		{
-			name:                "when alert rule tags are a JSON object",
-			alert:               &dashAlert{Id: 43, ParsedSettings: &dashAlertSettings{AlertRuleTags: map[string]any{"key": "value", "key2": "value2"}}, PanelId: 42},
-			dashboard:           "dashboard",
+			name: "when alert rule tags are a JSON object",
+			alert: &legacymodels.Alert{ID: 43, PanelID: 42, Settings: simplejson.NewFromAny(map[string]interface{}{
+				"alertRuleTags": map[string]interface{}{"key": "value", "key2": "value2"},
+			})}, dashboard: "dashboard",
 			expectedLabels:      map[string]string{"key": "value", "key2": "value2"},
 			expectedAnnotations: map[string]string{"__alertId__": "43", "__dashboardUid__": "dashboard", "__panelId__": "42"},
 		},
@@ -198,7 +202,7 @@ func TestMakeAlertRule(t *testing.T) {
 	t.Run("use default if execution of NoData is not known", func(t *testing.T) {
 		m := newTestOrgMigration(t, 1)
 		da := createTestDashAlert()
-		da.ParsedSettings.NoDataState = uuid.NewString()
+		da.Settings.Set("noDataState", uuid.NewString())
 		cnd := createTestDashAlertCondition()
 
 		ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
@@ -209,7 +213,7 @@ func TestMakeAlertRule(t *testing.T) {
 	t.Run("use default if execution of Error is not known", func(t *testing.T) {
 		m := newTestOrgMigration(t, 1)
 		da := createTestDashAlert()
-		da.ParsedSettings.ExecutionErrorState = uuid.NewString()
+		da.Settings.Set("executionErrorState", uuid.NewString())
 		cnd := createTestDashAlertCondition()
 
 		ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
@@ -234,21 +238,21 @@ func TestMakeAlertRule(t *testing.T) {
 	t.Run("create unique group from dashboard title and panel", func(t *testing.T) {
 		m := newTestOrgMigration(t, 1)
 		da := createTestDashAlert()
-		da.PanelId = 42
+		da.PanelID = 42
 		cnd := createTestDashAlertCondition()
 
 		ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
 
 		require.NoError(t, err)
-		require.Equal(t, fmt.Sprintf("%s - %d", dashboard.Title, da.PanelId), ar.RuleGroup)
+		require.Equal(t, fmt.Sprintf("%s - %d", dashboard.Title, da.PanelID), ar.RuleGroup)
 	})
 }
 
-func createTestDashAlert() dashAlert {
-	return dashAlert{
-		Id:             1,
-		Name:           "test",
-		ParsedSettings: &dashAlertSettings{},
+func createTestDashAlert() *legacymodels.Alert {
+	return &legacymodels.Alert{
+		ID:       1,
+		Name:     "test",
+		Settings: simplejson.New(),
 	}
 }
 

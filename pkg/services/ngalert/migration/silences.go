@@ -27,11 +27,7 @@ const (
 )
 
 // addErrorSilence adds a silence for the given rule to the orgMigration if the ExecutionErrorState was set to keep_state.
-func (om *orgMigration) addErrorSilence(da dashAlert, rule *models.AlertRule) error {
-	if da.ParsedSettings.ExecutionErrorState != "keep_state" {
-		return nil
-	}
-
+func (om *orgMigration) addErrorSilence(rule *models.AlertRule) error {
 	uid, err := uuid.NewRandom()
 	if err != nil {
 		return errors.New("failed to create uuid for silence")
@@ -64,11 +60,7 @@ func (om *orgMigration) addErrorSilence(da dashAlert, rule *models.AlertRule) er
 }
 
 // addNoDataSilence adds a silence for the given rule to the orgMigration if the NoDataState was set to keep_state.
-func (om *orgMigration) addNoDataSilence(da dashAlert, rule *models.AlertRule) error {
-	if da.ParsedSettings.NoDataState != "keep_state" {
-		return nil
-	}
-
+func (om *orgMigration) addNoDataSilence(rule *models.AlertRule) error {
 	uid, err := uuid.NewRandom()
 	if err != nil {
 		return errors.New("failed to create uuid for silence")

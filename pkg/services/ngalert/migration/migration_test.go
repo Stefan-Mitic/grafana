@@ -1397,6 +1397,7 @@ func NewMigrationService(t *testing.T, sqlStore *sqlstore.SQLStore, cfg *setting
 		datasourceService.ProvideCacheService(cache, sqlStore, guardian.ProvideGuardian()),
 		folderPermissions,
 		dashboardPermissions,
+		orgService,
 	)
 	require.NoError(t, err)
 	return ms
