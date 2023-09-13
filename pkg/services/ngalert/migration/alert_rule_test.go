@@ -100,26 +100,26 @@ func TestAddMigrationInfo(t *testing.T) {
 	}{
 		{
 			name: "when alert rule tags are a JSON array, they're ignored.",
-			alert: &legacymodels.Alert{ID: 43, PanelID: 42, Settings: simplejson.NewFromAny(map[string]interface{}{
+			alert: &legacymodels.Alert{ID: 43, PanelID: 42, Message: "message", Settings: simplejson.NewFromAny(map[string]interface{}{
 				"alertRuleTags": []string{"one", "two", "three", "four"},
 			})},
 			dashboard:           "dashboard",
-			expectedLabels:      map[string]string{},
-			expectedAnnotations: map[string]string{"__alertId__": "43", "__dashboardUid__": "dashboard", "__panelId__": "42"},
+			expectedLabels:      map[string]string{UseLegacyChannelsLabel: "true"},
+			expectedAnnotations: map[string]string{"__alertId__": "43", "__dashboardUid__": "dashboard", "__panelId__": "42", "message": "message"},
 		},
 		{
 			name: "when alert rule tags are a JSON object",
-			alert: &legacymodels.Alert{ID: 43, PanelID: 42, Settings: simplejson.NewFromAny(map[string]interface{}{
+			alert: &legacymodels.Alert{ID: 43, PanelID: 42, Message: "message", Settings: simplejson.NewFromAny(map[string]interface{}{
 				"alertRuleTags": map[string]interface{}{"key": "value", "key2": "value2"},
 			})}, dashboard: "dashboard",
-			expectedLabels:      map[string]string{"key": "value", "key2": "value2"},
-			expectedAnnotations: map[string]string{"__alertId__": "43", "__dashboardUid__": "dashboard", "__panelId__": "42"},
+			expectedLabels:      map[string]string{UseLegacyChannelsLabel: "true", "key": "value", "key2": "value2"},
+			expectedAnnotations: map[string]string{"__alertId__": "43", "__dashboardUid__": "dashboard", "__panelId__": "42", "message": "message"},
 		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			labels, annotations := addMigrationInfo(tc.alert, tc.dashboard)
+			labels, annotations := addMigrationInfo(tc.alert, tc.dashboard, nil)
 			require.Equal(t, tc.expectedLabels, labels)
 			require.Equal(t, tc.expectedAnnotations, annotations)
 		})
@@ -133,7 +133,7 @@ func TestMakeAlertRule(t *testing.T) {
 			da := createTestDashAlert()
 			cnd := createTestDashAlertCondition()
 
-			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
 
 			require.NoError(t, err)
 			require.Equal(t, da.Name, ar.Title)
@@ -144,7 +144,7 @@ func TestMakeAlertRule(t *testing.T) {
 			da.Name = strings.Repeat("a", store.AlertDefinitionMaxTitleLength+1)
 			cnd := createTestDashAlertCondition()
 
-			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
 
 			require.NoError(t, err)
 			require.Len(t, ar.Title, store.AlertDefinitionMaxTitleLength)
@@ -155,7 +155,7 @@ func TestMakeAlertRule(t *testing.T) {
 		da := createTestDashAlert()
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
 		require.NoError(t, err)
 		require.False(t, ar.IsPaused)
 	})
@@ -165,7 +165,7 @@ func TestMakeAlertRule(t *testing.T) {
 		da.State = "paused"
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
 		require.NoError(t, err)
 		require.True(t, ar.IsPaused)
 	})
@@ -175,7 +175,7 @@ func TestMakeAlertRule(t *testing.T) {
 		da.Settings.Set("noDataState", uuid.NewString())
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
 		require.Nil(t, err)
 		require.Equal(t, models.NoData, ar.NoDataState)
 	})
@@ -185,7 +185,7 @@ func TestMakeAlertRule(t *testing.T) {
 		da.Settings.Set("executionErrorState", uuid.NewString())
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
 		require.Nil(t, err)
 		require.Equal(t, models.ErrorErrState, ar.ExecErrState)
 	})
@@ -209,7 +209,7 @@ func TestMakeAlertRule(t *testing.T) {
 		da.PanelID = 42
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
 
 		require.NoError(t, err)
 		require.Equal(t, fmt.Sprintf("%s - %d", dashboard.Title, da.PanelID), ar.RuleGroup)

@@ -32,12 +32,8 @@ type AlertingStore interface {
 }
 
 // insertRules inserts the given rules into the database.
-func (ms *MigrationService) insertRules(ctx context.Context, l log.Logger, orgRules map[*models.AlertRule][]uidOrID) error {
-	l.Info("Inserting migrated alert rules", "count", len(orgRules))
-	rules := make([]models.AlertRule, 0, len(orgRules))
-	for rule := range orgRules {
-		rules = append(rules, *rule)
-	}
+func (ms *MigrationService) insertRules(ctx context.Context, l log.Logger, rules []models.AlertRule) error {
+	l.Info("Inserting migrated alert rules", "count", len(rules))
 	_, err := ms.ruleStore.InsertAlertRules(ctx, rules)
 	if err != nil {
 		return err

@@ -83,7 +83,6 @@ func (ms *MigrationService) newOrgMigration(orgID int64) *orgMigration {
 
 func (ms *MigrationService) migrateOrg(ctx context.Context, orgID int64) (*orgMigration, error) {
 	om := ms.newOrgMigration(orgID)
-	orgRules := make(map[*models.AlertRule][]uidOrID)
 	om.log.Info("migrating alerts for organisation")
 
 	mappedAlerts, err := ms.slurpDashAlerts(ctx, om.log, orgID)
@@ -117,9 +116,10 @@ func (ms *MigrationService) migrateOrg(ctx context.Context, orgID int64) (*orgMi
 		}
 		dedupSet := om.alertRuleTitleDedup[f.UID]
 
+		rules := make([]models.AlertRule, 0, len(alerts))
 		for _, da := range alerts {
 			l := l.New("ruleID", da.ID, "ruleName", da.Name)
-			alertRule, channels, err := ms.MigrateAlert(ctx, l, da, dash, f)
+			alertRule, err := ms.MigrateAlert(ctx, l, da, dash, f)
 			if err != nil {
 				return nil, fmt.Errorf("failed to migrate alert %s [ID: %d] on dashboard %s [ID: %d]: %w", da.Name, da.ID, dash.Title, dash.ID, err)
 			}
@@ -130,22 +130,21 @@ func (ms *MigrationService) migrateOrg(ctx context.Context, orgID int64) (*orgMi
 				alertRule.Title = dedupedName
 			}
 			dedupSet.add(alertRule.Title)
-
 			om.silences = append(om.silences, createSilences(l, da, alertRule)...)
-			orgRules[alertRule] = channels
+			rules = append(rules, *alertRule)
+		}
+
+		if len(rules) > 0 {
+			err = ms.insertRules(ctx, om.log, rules)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
-	amConfig, err := om.setupAlertmanagerConfigs(ctx, orgRules)
+	amConfig, err := om.setupAlertmanagerConfigs(ctx)
 	if err != nil {
 		return nil, err
-	}
-
-	if len(orgRules) > 0 {
-		err = ms.insertRules(ctx, om.log, orgRules)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	// Validate the alertmanager configuration produced, this gives a chance to catch bad configuration at migration time.

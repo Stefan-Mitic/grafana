@@ -12,6 +12,7 @@ import (
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/serverlock"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
+	legacyalerting "github.com/grafana/grafana/pkg/services/alerting"
 	"github.com/grafana/grafana/pkg/services/dashboards"
 	"github.com/grafana/grafana/pkg/services/datasources"
 	"github.com/grafana/grafana/pkg/services/folder"
@@ -44,6 +45,8 @@ type MigrationService struct {
 	folderPermissions    accesscontrol.FolderPermissionsService
 	dashboardPermissions accesscontrol.DashboardPermissionsService
 	orgService           org.Service
+
+	legacyAlertStore legacyalerting.AlertStore
 }
 
 func ProvideService(
@@ -59,6 +62,7 @@ func ProvideService(
 	folderPermissions accesscontrol.FolderPermissionsService,
 	dashboardPermissions accesscontrol.DashboardPermissionsService,
 	orgService org.Service,
+	legacyAlertStore legacyalerting.AlertStore,
 ) (*MigrationService, error) {
 	return &MigrationService{
 		lock:                 lock,
@@ -75,6 +79,7 @@ func ProvideService(
 		folderPermissions:    folderPermissions,
 		dashboardPermissions: dashboardPermissions,
 		orgService:           orgService,
+		legacyAlertStore:     legacyAlertStore,
 	}, nil
 }
 

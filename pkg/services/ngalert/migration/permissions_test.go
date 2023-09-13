@@ -65,7 +65,7 @@ func TestDashAlertPermissionMigration(t *testing.T) {
 				"__dashboardUid__": dashboardUID,
 				"__panelId__":      "1",
 			},
-			Labels:   map[string]string{},
+			Labels:   map[string]string{UseLegacyChannelsLabel: "true"},
 			IsPaused: false,
 		}
 	}

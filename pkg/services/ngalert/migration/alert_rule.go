@@ -19,49 +19,63 @@ import (
 )
 
 const (
-	// ContactLabel is a private label created during migration and used in notification policies.
-	// It stores a string array of all contact point names an alert rule should send to.
-	// It was created as a means to simplify post-migration notification policies.
-	ContactLabel = "__contacts__"
+	// ContactLabelTemplate is a private label added to a rule's labels to route it to the correct migrated
+	// notification channel.
+	ContactLabelTemplate = "__contacts_%s__"
+
+	// UseLegacyChannelsLabel is a private label added to a rule's labels to enable routing to the nested route created
+	// during migration.
+	UseLegacyChannelsLabel = "__use_legacy_channels__"
 )
 
 // MigrateAlert migrates a single dashboard alert from legacy alerting to unified alerting.
-func (ms *MigrationService) MigrateAlert(ctx context.Context, l log.Logger, alert *legacymodels.Alert, dash *dashboards.Dashboard, f *folder.Folder) (*ngmodels.AlertRule, []uidOrID, error) {
+func (ms *MigrationService) MigrateAlert(ctx context.Context, l log.Logger, alert *legacymodels.Alert, dash *dashboards.Dashboard, f *folder.Folder) (*ngmodels.AlertRule, error) {
 	l.Debug("migrating alert rule to Unified Alerting")
 	rawSettings, err := json.Marshal(alert.Settings)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get settings: %w", err)
+		return nil, fmt.Errorf("failed to get settings: %w", err)
 	}
 	var parsedSettings dashAlertSettings
 	err = json.Unmarshal(rawSettings, &parsedSettings)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse settings: %w", err)
+		return nil, fmt.Errorf("failed to parse settings: %w", err)
 	}
 	newCond, err := transConditions(ctx, parsedSettings, alert.OrgID, ms.dataSourceCache)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to transform conditions: %w", err)
+		return nil, fmt.Errorf("failed to transform conditions: %w", err)
 	}
 
-	rule, err := makeAlertRule(l, *newCond, alert, dash, f.UID)
+	channels := ms.extractChannelUIDs(ctx, l, alert.OrgID, parsedSettings)
+
+	rule, err := makeAlertRule(l, *newCond, alert, dash, f.UID, channels)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to make alert rule: %w", err)
+		return nil, fmt.Errorf("failed to make alert rule: %w", err)
 	}
 
-	return rule, extractChannelIDs(parsedSettings), nil
+	return rule, nil
 }
 
-func addMigrationInfo(alert *legacymodels.Alert, dashboardUID string) (map[string]string, map[string]string) {
+func addMigrationInfo(l log.Logger, alert *legacymodels.Alert, dashboardUID string, channels []string) (map[string]string, map[string]string) {
 	tags := alert.GetTagsFromSettings()
-	lbls := make(map[string]string, len(tags))
+	lbls := make(map[string]string)
 
 	for _, t := range tags {
 		lbls[t.Key] = t.Value
 	}
 
-	annotations := make(map[string]string, 3)
+	// Add a label for routing
+	lbls[UseLegacyChannelsLabel] = "true"
+	for _, c := range channels {
+		lbls[fmt.Sprintf(ContactLabelTemplate, c)] = "true"
+	}
+
+	annotations := make(map[string]string, 4)
 	annotations[ngmodels.DashboardUIDAnnotation] = dashboardUID
 	annotations[ngmodels.PanelIDAnnotation] = fmt.Sprintf("%v", alert.PanelID)
 	annotations["__alertId__"] = fmt.Sprintf("%v", alert.ID)
+
+	message := MigrateTmpl(l.New("field", "message"), alert.Message)
+	annotations["message"] = message
 
 	return lbls, annotations
 }
@@ -76,7 +90,6 @@ func createSilences(l log.Logger, alert *legacymodels.Alert, ar *ngmodels.AlertR
 
 	var silences []*silencepb.MeshSilence
 	if execErrState == "keep_state" {
-
 		if s, err := createErrorSilence(ar); err != nil {
 			l.Error("alert migration error: failed to create silence for Error", "rule_name", ar.Title, "err", err)
 		} else {
@@ -95,11 +108,9 @@ func createSilences(l log.Logger, alert *legacymodels.Alert, ar *ngmodels.AlertR
 }
 
 // makeAlertRule creates an alert rule from a dashboard alert and the given translated condition.
-func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, dash *dashboards.Dashboard, folderUID string) (*ngmodels.AlertRule, error) {
-	lbls, annotations := addMigrationInfo(alert, dash.UID)
-
-	message := MigrateTmpl(l.New("field", "message"), alert.Message)
-	annotations["message"] = message
+func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, dash *dashboards.Dashboard, folderUID string, channels []string) (*ngmodels.AlertRule, error) {
+	lbls, annotations := addMigrationInfo(l, alert, dash.UID, channels)
+	var err error
 
 	data, err := migrateAlertRuleQueries(l, cond.Data)
 	if err != nil {
@@ -110,9 +121,6 @@ func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, dash
 	if alert.State == "paused" {
 		isPaused = true
 	}
-
-	noDataState := alert.Settings.Get("noDataState").MustString()
-	execErrState := alert.Settings.Get("executionErrorState").MustString()
 
 	dashUID := dash.UID
 	ar := &ngmodels.AlertRule{
@@ -133,8 +141,8 @@ func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, dash
 		Labels:          lbls,
 		RuleGroupIndex:  1, // Every rule is in its own group.
 		IsPaused:        isPaused,
-		NoDataState:     transNoData(l, noDataState),
-		ExecErrState:    transExecErr(l, execErrState),
+		NoDataState:     transNoData(l, alert.Settings.Get("noDataState").MustString()),
+		ExecErrState:    transExecErr(l, alert.Settings.Get("executionErrorState").MustString()),
 	}
 
 	return ar, nil
@@ -299,18 +307,24 @@ func truncateRuleName(daName string) string {
 	return daName
 }
 
-// extractChannelIDs extracts the notification channel IDs from the given legacy dashboard alert parsed settings.
-func extractChannelIDs(parsedSettings dashAlertSettings) (channelUids []uidOrID) {
+// extractChannelUIDs extracts the notification channel UIDs from the given legacy dashboard alert parsed settings.
+func (ms *MigrationService) extractChannelUIDs(ctx context.Context, l log.Logger, orgID int64, parsedSettings dashAlertSettings) (channelUids []string) {
 	// Extracting channel UID/ID.
 	for _, ui := range parsedSettings.Notifications {
-		if ui.UID != "" {
-			channelUids = append(channelUids, ui.UID)
-			continue
-		}
-		// In certain circumstances, id is used instead of uid.
-		// We add this if there was no uid.
+
+		// Either id or uid can be defined in the dashboard alert notification settings. See alerting.NewRuleFromDBAlert.
 		if ui.ID > 0 {
-			channelUids = append(channelUids, ui.ID)
+			cmd := legacymodels.GetAlertNotificationUidQuery{
+				ID:    ui.ID,
+				OrgID: orgID,
+			}
+			uid, err := ms.legacyAlertStore.GetAlertNotificationUidWithId(ctx, &cmd)
+			if err != nil {
+				l.Error("failed to get alert notification UID", "notificationId", ui.ID, "err", err)
+			}
+			channelUids = append(channelUids, uid)
+		} else if ui.UID != "" {
+			channelUids = append(channelUids, ui.UID)
 		}
 	}
 
