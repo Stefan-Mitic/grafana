@@ -130,93 +130,62 @@ func TestMakeAlertRule(t *testing.T) {
 	dashboard := createDashboard(t, 1, 1, "dashboard", 0, nil)
 	t.Run("when mapping rule names", func(t *testing.T) {
 		t.Run("leaves basic names untouched", func(t *testing.T) {
-			m := newTestOrgMigration(t, 1)
 			da := createTestDashAlert()
 			cnd := createTestDashAlertCondition()
 
-			ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
 
 			require.NoError(t, err)
 			require.Equal(t, da.Name, ar.Title)
 		})
 
 		t.Run("truncates very long names to max length", func(t *testing.T) {
-			m := newTestOrgMigration(t, 1)
 			da := createTestDashAlert()
 			da.Name = strings.Repeat("a", store.AlertDefinitionMaxTitleLength+1)
 			cnd := createTestDashAlertCondition()
 
-			ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
 
 			require.NoError(t, err)
 			require.Len(t, ar.Title, store.AlertDefinitionMaxTitleLength)
-		})
-
-		t.Run("deduplicate names in same org and folder", func(t *testing.T) {
-			m := newTestOrgMigration(t, 1)
-			da := createTestDashAlert()
-			da.Name = strings.Repeat("a", store.AlertDefinitionMaxTitleLength+1)
-			cnd := createTestDashAlertCondition()
-
-			ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
-
-			require.NoError(t, err)
-			require.Len(t, ar.Title, store.AlertDefinitionMaxTitleLength)
-
-			da = createTestDashAlert()
-			da.Name = strings.Repeat("a", store.AlertDefinitionMaxTitleLength+1)
-			cnd = createTestDashAlertCondition()
-
-			ar, err = m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
-
-			require.NoError(t, err)
-			require.Len(t, ar.Title, store.AlertDefinitionMaxTitleLength)
-			parts := strings.SplitN(ar.Title, "_", 2)
-			require.Len(t, parts, 2)
-			require.Greater(t, len(parts[1]), 8, "unique identifier should be longer than 9 characters")
-			require.Equal(t, store.AlertDefinitionMaxTitleLength-1, len(parts[0])+len(parts[1]), "truncated name + underscore + unique identifier should together be DefaultFieldMaxLength")
 		})
 	})
 
 	t.Run("alert is not paused", func(t *testing.T) {
-		m := newTestOrgMigration(t, 1)
 		da := createTestDashAlert()
 		cnd := createTestDashAlertCondition()
 
-		ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
 		require.NoError(t, err)
 		require.False(t, ar.IsPaused)
 	})
 
 	t.Run("paused dash alert is paused", func(t *testing.T) {
-		m := newTestOrgMigration(t, 1)
 		da := createTestDashAlert()
 		da.State = "paused"
 		cnd := createTestDashAlertCondition()
 
-		ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
 		require.NoError(t, err)
 		require.True(t, ar.IsPaused)
 	})
 
 	t.Run("use default if execution of NoData is not known", func(t *testing.T) {
-		m := newTestOrgMigration(t, 1)
 		da := createTestDashAlert()
 		da.Settings.Set("noDataState", uuid.NewString())
 		cnd := createTestDashAlertCondition()
 
-		ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
 		require.Nil(t, err)
 		require.Equal(t, models.NoData, ar.NoDataState)
 	})
 
 	t.Run("use default if execution of Error is not known", func(t *testing.T) {
-		m := newTestOrgMigration(t, 1)
 		da := createTestDashAlert()
 		da.Settings.Set("executionErrorState", uuid.NewString())
 		cnd := createTestDashAlertCondition()
 
-		ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
 		require.Nil(t, err)
 		require.Equal(t, models.ErrorErrState, ar.ExecErrState)
 	})
@@ -236,12 +205,11 @@ func TestMakeAlertRule(t *testing.T) {
 	})
 
 	t.Run("create unique group from dashboard title and panel", func(t *testing.T) {
-		m := newTestOrgMigration(t, 1)
 		da := createTestDashAlert()
 		da.PanelID = 42
 		cnd := createTestDashAlertCondition()
 
-		ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
 
 		require.NoError(t, err)
 		require.Equal(t, fmt.Sprintf("%s - %d", dashboard.Title, da.PanelID), ar.RuleGroup)

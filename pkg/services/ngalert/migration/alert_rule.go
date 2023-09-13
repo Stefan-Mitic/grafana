@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/prometheus/alertmanager/silence/silencepb"
+
 	"github.com/grafana/grafana/pkg/infra/log"
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	"github.com/grafana/grafana/pkg/services/dashboards"
@@ -23,8 +25,8 @@ const (
 	ContactLabel = "__contacts__"
 )
 
-// migrateAlert migrates a single dashboard alert from legacy alerting to unified alerting.
-func (om *orgMigration) migrateAlert(ctx context.Context, l log.Logger, alert *legacymodels.Alert, dash *dashboards.Dashboard, f *folder.Folder) (*ngmodels.AlertRule, []uidOrID, error) {
+// MigrateAlert migrates a single dashboard alert from legacy alerting to unified alerting.
+func (ms *MigrationService) MigrateAlert(ctx context.Context, l log.Logger, alert *legacymodels.Alert, dash *dashboards.Dashboard, f *folder.Folder) (*ngmodels.AlertRule, []uidOrID, error) {
 	l.Debug("migrating alert rule to Unified Alerting")
 	rawSettings, err := json.Marshal(alert.Settings)
 	if err != nil {
@@ -35,12 +37,12 @@ func (om *orgMigration) migrateAlert(ctx context.Context, l log.Logger, alert *l
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse settings: %w", err)
 	}
-	newCond, err := transConditions(ctx, parsedSettings, alert.OrgID, om.dsCacheService)
+	newCond, err := transConditions(ctx, parsedSettings, alert.OrgID, ms.dataSourceCache)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to transform conditions: %w", err)
 	}
 
-	rule, err := om.makeAlertRule(l, *newCond, alert, dash, f.UID)
+	rule, err := makeAlertRule(l, *newCond, alert, dash, f.UID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to make alert rule: %w", err)
 	}
@@ -64,8 +66,36 @@ func addMigrationInfo(alert *legacymodels.Alert, dashboardUID string) (map[strin
 	return lbls, annotations
 }
 
+func createSilences(l log.Logger, alert *legacymodels.Alert, ar *ngmodels.AlertRule) []*silencepb.MeshSilence {
+	noDataState := alert.Settings.Get("noDataState").MustString()
+	execErrState := alert.Settings.Get("executionErrorState").MustString()
+
+	// Label for routing and silences.
+	n, v := getLabelForSilenceMatching(ar.UID)
+	ar.Labels[n] = v
+
+	var silences []*silencepb.MeshSilence
+	if execErrState == "keep_state" {
+
+		if s, err := createErrorSilence(ar); err != nil {
+			l.Error("alert migration error: failed to create silence for Error", "rule_name", ar.Title, "err", err)
+		} else {
+			silences = append(silences, s)
+		}
+	}
+
+	if noDataState == "keep_state" {
+		if s, err := createNoDataSilence(ar); err != nil {
+			l.Error("alert migration error: failed to create silence for NoData", "rule_name", ar.Title, "err", err)
+		} else {
+			silences = append(silences, s)
+		}
+	}
+	return silences
+}
+
 // makeAlertRule creates an alert rule from a dashboard alert and the given translated condition.
-func (om *orgMigration) makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, dash *dashboards.Dashboard, folderUID string) (*ngmodels.AlertRule, error) {
+func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, dash *dashboards.Dashboard, folderUID string) (*ngmodels.AlertRule, error) {
 	lbls, annotations := addMigrationInfo(alert, dash.UID)
 
 	message := MigrateTmpl(l.New("field", "message"), alert.Message)
@@ -75,26 +105,6 @@ func (om *orgMigration) makeAlertRule(l log.Logger, cond condition, alert *legac
 	if err != nil {
 		return nil, fmt.Errorf("failed to migrate alert rule queries: %w", err)
 	}
-
-	// Here we ensure that the alert rule title is unique within the folder.
-	if _, ok := om.alertRuleTitleDedup[folderUID]; !ok {
-		om.alertRuleTitleDedup[folderUID] = deduplicator{
-			set:             make(map[string]struct{}),
-			caseInsensitive: om.dialect.SupportEngine(),
-			maxLen:          store.AlertDefinitionMaxTitleLength,
-		}
-	}
-	dedupSet := om.alertRuleTitleDedup[folderUID]
-	name := truncateRuleName(alert.Name)
-	if dedupSet.contains(name) {
-		dedupedName, err := dedupSet.deduplicate(name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to deduplicate alert rule name: %w", err)
-		}
-		om.log.Warn("duplicate alert rule name detected, renaming", "old_name", name, "new_name", dedupedName)
-		name = dedupedName
-	}
-	dedupSet.add(name)
 
 	isPaused := false
 	if alert.State == "paused" {
@@ -107,7 +117,7 @@ func (om *orgMigration) makeAlertRule(l log.Logger, cond condition, alert *legac
 	dashUID := dash.UID
 	ar := &ngmodels.AlertRule{
 		OrgID:           alert.OrgID,
-		Title:           name,
+		Title:           truncateRuleName(alert.Name),
 		UID:             util.GenerateShortUID(),
 		Condition:       cond.Condition,
 		Data:            data,
@@ -125,22 +135,6 @@ func (om *orgMigration) makeAlertRule(l log.Logger, cond condition, alert *legac
 		IsPaused:        isPaused,
 		NoDataState:     transNoData(l, noDataState),
 		ExecErrState:    transExecErr(l, execErrState),
-	}
-
-	// Label for routing and silences.
-	n, v := getLabelForSilenceMatching(ar.UID)
-	ar.Labels[n] = v
-
-	if execErrState == "keep_state" {
-		if err := om.addErrorSilence(ar); err != nil {
-			l.Error("alert migration error: failed to create silence for Error", "rule_name", ar.Title, "err", err)
-		}
-	}
-
-	if noDataState == "keep_state" {
-		if err := om.addNoDataSilence(ar); err != nil {
-			l.Error("alert migration error: failed to create silence for NoData", "rule_name", ar.Title, "err", err)
-		}
 	}
 
 	return ar, nil

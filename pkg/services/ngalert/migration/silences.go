@@ -26,11 +26,11 @@ const (
 	ErrorAlertName = "DatasourceError"
 )
 
-// addErrorSilence adds a silence for the given rule to the orgMigration if the ExecutionErrorState was set to keep_state.
-func (om *orgMigration) addErrorSilence(rule *models.AlertRule) error {
+// createErrorSilence creates a silence for the given rule because ExecutionErrorState was set to keep_state.
+func createErrorSilence(rule *models.AlertRule) (*pb.MeshSilence, error) {
 	uid, err := uuid.NewRandom()
 	if err != nil {
-		return errors.New("failed to create uuid for silence")
+		return nil, errors.New("failed to create uuid for silence")
 	}
 
 	s := &pb.MeshSilence{
@@ -55,15 +55,14 @@ func (om *orgMigration) addErrorSilence(rule *models.AlertRule) error {
 		},
 		ExpiresAt: time.Now().AddDate(1, 0, 0), // 1 year
 	}
-	om.silences = append(om.silences, s)
-	return nil
+	return s, nil
 }
 
-// addNoDataSilence adds a silence for the given rule to the orgMigration if the NoDataState was set to keep_state.
-func (om *orgMigration) addNoDataSilence(rule *models.AlertRule) error {
+// createNoDataSilence creates a silence for the given rule because the NoDataState was set to keep_state.
+func createNoDataSilence(rule *models.AlertRule) (*pb.MeshSilence, error) {
 	uid, err := uuid.NewRandom()
 	if err != nil {
-		return errors.New("failed to create uuid for silence")
+		return nil, errors.New("failed to create uuid for silence")
 	}
 
 	s := &pb.MeshSilence{
@@ -88,8 +87,7 @@ func (om *orgMigration) addNoDataSilence(rule *models.AlertRule) error {
 		},
 		ExpiresAt: time.Now().AddDate(1, 0, 0), // 1 year.
 	}
-	om.silences = append(om.silences, s)
-	return nil
+	return s, nil
 }
 
 func (om *orgMigration) writeSilencesFile() error {

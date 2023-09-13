@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/grafana/grafana/pkg/infra/kvstore"
+	"github.com/grafana/grafana/pkg/infra/log"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 )
@@ -31,13 +32,13 @@ type AlertingStore interface {
 }
 
 // insertRules inserts the given rules into the database.
-func (m *migration) insertRules(ctx context.Context, orgID int64, orgRules map[*models.AlertRule][]uidOrID) error {
-	m.log.Info("Inserting migrated alert rules", "orgID", orgID, "count", len(orgRules))
+func (ms *MigrationService) insertRules(ctx context.Context, l log.Logger, orgRules map[*models.AlertRule][]uidOrID) error {
+	l.Info("Inserting migrated alert rules", "count", len(orgRules))
 	rules := make([]models.AlertRule, 0, len(orgRules))
 	for rule := range orgRules {
 		rules = append(rules, *rule)
 	}
-	_, err := m.ruleStore.InsertAlertRules(ctx, rules)
+	_, err := ms.ruleStore.InsertAlertRules(ctx, rules)
 	if err != nil {
 		return err
 	}
@@ -45,7 +46,7 @@ func (m *migration) insertRules(ctx context.Context, orgID int64, orgRules map[*
 }
 
 // writeAlertmanagerConfig writes the given Alertmanager configuration to the database.
-func (m *migration) writeAlertmanagerConfig(ctx context.Context, orgID int64, amConfig *apimodels.PostableUserConfig) error {
+func (ms *MigrationService) writeAlertmanagerConfig(ctx context.Context, orgID int64, amConfig *apimodels.PostableUserConfig) error {
 	rawAmConfig, err := json.Marshal(amConfig)
 	if err != nil {
 		return err
@@ -58,7 +59,7 @@ func (m *migration) writeAlertmanagerConfig(ctx context.Context, orgID int64, am
 		OrgID:                     orgID,
 		LastApplied:               0,
 	}
-	return m.alertingStore.SaveAlertmanagerConfiguration(ctx, &cmd)
+	return ms.alertingStore.SaveAlertmanagerConfiguration(ctx, &cmd)
 }
 
 type InfoStore struct {

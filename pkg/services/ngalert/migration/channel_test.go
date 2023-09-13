@@ -91,7 +91,7 @@ func TestFilterReceiversForAlert(t *testing.T) {
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newTestOrgMigration(t, 1)
-			res := m.filterReceiversForAlert("", tt.channelIds, tt.receivers, tt.defaultReceivers)
+			res := m.filterReceiversForAlert(m.log, tt.channelIds, tt.receivers, tt.defaultReceivers)
 
 			require.Equal(t, tt.expected, res)
 		})

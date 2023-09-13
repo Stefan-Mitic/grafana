@@ -118,23 +118,7 @@ func (ms *MigrationService) Run(ctx context.Context) error {
 			}
 
 			ms.log.Info("Starting legacy migration")
-			mg := newMigration(
-				ms.log,
-				ms.cfg,
-				ms.info,
-				ms.store,
-				ms.ruleStore,
-				ms.alertingStore,
-				ms.encryptionService,
-				ms.dashboardService,
-				ms.folderService,
-				ms.dataSourceCache,
-				ms.folderPermissions,
-				ms.dashboardPermissions,
-				ms.orgService,
-			)
-
-			err = mg.Exec(ctx)
+			err = ms.Exec(ctx)
 			if err != nil {
 				return fmt.Errorf("executing migration: %w", err)
 			}

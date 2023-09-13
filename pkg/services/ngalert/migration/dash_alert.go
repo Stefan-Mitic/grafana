@@ -11,9 +11,9 @@ import (
 )
 
 // slurpDashAlerts loads all legacy dashboard alerts for the given org mapped by dashboard id.
-func (m *migration) slurpDashAlerts(ctx context.Context, l log.Logger, orgID int64) (map[int64][]*legacymodels.Alert, error) {
+func (ms *MigrationService) slurpDashAlerts(ctx context.Context, l log.Logger, orgID int64) (map[int64][]*legacymodels.Alert, error) {
 	var dashAlerts []*legacymodels.Alert
-	err := m.store.WithDbSession(ctx, func(sess *db.Session) error {
+	err := ms.store.WithDbSession(ctx, func(sess *db.Session) error {
 		return sess.SQL("select * from alert WHERE org_id = ?", orgID).Find(&dashAlerts)
 	})
 	if err != nil {

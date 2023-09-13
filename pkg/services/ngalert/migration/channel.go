@@ -17,6 +17,7 @@ import (
 
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/db"
+	"github.com/grafana/grafana/pkg/infra/log"
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
 	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
@@ -93,7 +94,8 @@ func (om *orgMigration) setupAlertmanagerConfigs(ctx context.Context, rules map[
 	}
 
 	for ar, channelUids := range rules {
-		filteredReceiverNames := om.filterReceiversForAlert(ar.Title, channelUids, receiversMap, defaultReceivers)
+		l := om.log.New("alert", ar.Title)
+		filteredReceiverNames := om.filterReceiversForAlert(l, channelUids, receiversMap, defaultReceivers)
 
 		if len(filteredReceiverNames) != 0 {
 			// Only create a contact label if there are specific receivers, otherwise it defaults to the root-level route.
@@ -358,7 +360,7 @@ func createRoute(cr channelReceiver) (*apimodels.Route, error) {
 }
 
 // Filter receivers to select those that were associated to the given rule as channels.
-func (om *orgMigration) filterReceiversForAlert(name string, channelIDs []uidOrID, receivers map[uidOrID]*apimodels.PostableApiReceiver, defaultReceivers map[string]struct{}) map[string]any {
+func (om *orgMigration) filterReceiversForAlert(l log.Logger, channelIDs []uidOrID, receivers map[uidOrID]*apimodels.PostableApiReceiver, defaultReceivers map[string]struct{}) map[string]any {
 	if len(channelIDs) == 0 {
 		// If there are no channels associated, we use the default route.
 		return nil
@@ -371,7 +373,7 @@ func (om *orgMigration) filterReceiversForAlert(name string, channelIDs []uidOrI
 		if ok {
 			filteredReceiverNames[recv.Name] = struct{}{} // Deduplicate on contact point name.
 		} else {
-			om.log.Warn("Alert linked to obsolete notification channel, ignoring", "alert", name, "uid", uidOrId)
+			l.Warn("Alert linked to obsolete notification channel, ignoring", "uid", uidOrId)
 		}
 	}
 
