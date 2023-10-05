@@ -400,7 +400,8 @@ func (s *ServiceImpl) buildLegacyAlertNavLinks(c *contextmodel.ReqContext) *navt
 	if s.cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUA) && c.HasRole(org.RoleAdmin) {
 		alertChildNavs = append(alertChildNavs, &navtree.NavLink{
 			Text: "Upgrade Alerting", Id: "alerting-upgrade", Url: s.cfg.AppSubURL + "/alerting-legacy/upgrade",
-			Icon: "cog",
+			SubTitle: "Upgrade your existing legacy alerts and notification channels to the new Alerting engine",
+			Icon:     "cog",
 		})
 	}
 
