@@ -635,7 +635,15 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
         if (!dashUpgrade.folderName) {
           return <Stack alignItems={"center"} gap={0.5}><Icon name="folder" /><Badge color="red" text="Unknown Folder"/></Stack>;
         }
-        return <Stack alignItems={"center"} gap={0.5}><Icon name="folder" />{dashUpgrade.folderName}</Stack>
+        return <Stack alignItems={"center"} gap={0.5}>
+                  <Icon name="folder" />
+                  <Link rel="noreferrer"
+                        target="_blank"
+                        className={styles.textLink}
+                        href={makeFolderLink(dashUpgrade.folderUid)}>
+                    {dashUpgrade.folderName}
+                  </Link>
+              </Stack>
       },
       size: 2,
     },
@@ -646,7 +654,14 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
         if (!dashUpgrade.dashboardName) {
           return <Stack alignItems={"center"} gap={0.5}><Icon name="apps" /><Badge color="red" text={`Unknown Dashboard ID:${dashUpgrade.dashboardId}`}/></Stack>
         }
-        return <Stack alignItems={"center"} gap={0.5}><Icon name="apps" />{dashUpgrade.dashboardName}</Stack>
+        return <Stack alignItems={"center"} gap={0.5}><Icon name="apps" />
+                <Link rel="noreferrer"
+                      target="_blank"
+                      className={styles.textLink}
+                      href={makeDashboardLink(dashUpgrade.dashboardUid)}>
+                  {dashUpgrade.dashboardName}
+                </Link>
+              </Stack>
       },
       size: 2,
     },
@@ -668,12 +683,16 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
       label: 'New Folder',
       renderCell: ({ data: dashUpgrade }) => {
         const migratedFolderUid = dashUpgrade?.newFolderUid;
-        const folderChanged = migratedFolderUid!! && migratedFolderUid !== dashUpgrade.folderUid;
-        if (folderChanged && dashUpgrade?.newFolderName) {
+        if (migratedFolderUid && migratedFolderUid !== dashUpgrade.folderUid && dashUpgrade?.newFolderName) {
           const newFolderWarning = dashUpgrade.warnings.find((warning) => warning.includes('dashboard alerts moved'));
           return <Stack alignItems={"center"} gap={0.5}>
                   <Icon name={"folder"} />
-                  {dashUpgrade?.newFolderName}
+                  <Link rel="noreferrer"
+                        target="_blank"
+                        className={styles.textLink}
+                        href={makeFolderLink(migratedFolderUid)}>
+                    {dashUpgrade.newFolderName}
+                  </Link>
                   {newFolderWarning && (
                     <Tooltip theme="info-alt" content={newFolderWarning} placement="top">
                       <Icon name={'info-circle'}/>
@@ -729,8 +748,6 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
       id: 'actions',
       label: 'Actions',
       renderCell: ({ data: dashUpgrade }) => {
-        const migratedFolderUid = dashUpgrade?.newFolderUid;
-        const folderChanged = migratedFolderUid!! && migratedFolderUid !== dashUpgrade.folderUid;
         return (
           <Stack gap={0.5} alignItems="center">
             {dashUpgrade.dashboardId && (<ActionIcon
@@ -741,39 +758,12 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
               tooltip="re-upgrade legacy alerts for this dashboard"
               onClick={() => migrateDashboard({dashboardId: dashUpgrade.dashboardId, skipExisting: false})}
             />)}
-            {dashUpgrade.folderUid && (<ActionIcon
-              aria-label="go to folder"
-              key="gotofolder"
-              icon="folder-open"
-              tooltip="go to folder"
-              to={makeFolderLink(dashUpgrade.folderUid)}
-              target="__blank"
-            />)}
-            {dashUpgrade.dashboardUid && (<ActionIcon
-              aria-label="go to dashboard"
-              key="gotodash"
-              icon="apps"
-              tooltip="go to dashboard"
-              to={makeDashboardLink(dashUpgrade.dashboardUid)}
-              target="__blank"
-            />)}
-            {folderChanged && migratedFolderUid && (
-              <>
-                <Icon name="arrow-right"/>
-                <ActionIcon
-                  aria-label="go to new folder"
-                  key="gotonew"
-                  icon="folder-open"
-                  tooltip="go to new folder"
-                  to={makeFolderLink(migratedFolderUid)}
-                  target="__blank"/>
-              </>)}
           </Stack>
         )
       },
-      size: '150px',
+      size: '70px',
     },
-  ]), [styles.tableBadges, styles.warningIcon, migrateDashboard]);
+  ]), [styles.tableBadges, styles.warningIcon, styles.textLink, migrateDashboard]);
 }
 
 const ufuzzy = new uFuzzy({
