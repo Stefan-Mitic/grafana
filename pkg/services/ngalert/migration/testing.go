@@ -8,15 +8,15 @@ import (
 	"github.com/grafana/grafana/pkg/infra/log/logtest"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
 	"github.com/grafana/grafana/pkg/services/folder"
-	apiModels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
+	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	fake_secrets "github.com/grafana/grafana/pkg/services/secrets/fakes"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
 
-// newTestOrgMigration generates an empty orgMigration to use in tests.
-func newTestOrgMigration(t *testing.T, orgID int64) *orgMigration {
+// newTestOrgMigration generates an empty OrgMigration to use in tests.
+func newTestOrgMigration(t *testing.T, orgID int64) *OrgMigration {
 	t.Helper()
-	return &orgMigration{
+	return &OrgMigration{
 		orgID: orgID,
 		log:   &logtest.Fake{},
 
@@ -32,10 +32,10 @@ func newTestOrgMigration(t *testing.T, orgID int64) *orgMigration {
 		},
 
 		// We deduplicate for case-insensitive matching in MySQL-compatible backend flavours because they use case-insensitive collation.
-		seenUIDs:            deduplicator{set: make(map[string]struct{}), caseInsensitive: migrator.NewMysqlDialect().SupportEngine()},
+		seenUIDs:            Deduplicator{set: make(map[string]struct{}), caseInsensitive: migrator.NewMysqlDialect().SupportEngine()},
 		silences:            make([]*pb.MeshSilence, 0),
-		alertRuleTitleDedup: make(map[string]deduplicator),
-		summary: &apiModels.OrgMigrationSummary{
+		alertRuleTitleDedup: make(map[string]Deduplicator),
+		state: &migmodels.OrgMigrationState{
 			OrgID: orgID,
 		},
 	}

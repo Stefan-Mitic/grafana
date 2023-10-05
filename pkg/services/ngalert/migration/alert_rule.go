@@ -10,7 +10,7 @@ import (
 
 	"github.com/grafana/grafana/pkg/infra/log"
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
-	"github.com/grafana/grafana/pkg/services/dashboards"
+	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
 	"github.com/grafana/grafana/pkg/tsdb/graphite"
@@ -79,9 +79,75 @@ func createSilences(l log.Logger, alert *legacymodels.Alert, ar *ngmodels.AlertR
 	return silences
 }
 
+func (om *OrgMigration) cleanupDashboardAlerts(ctx context.Context, du *migmodels.DashboardUpgrade) error {
+	// Cleanup.
+	if du != nil {
+		ruleUids := make([]string, 0, len(du.MigratedAlerts))
+		for _, pair := range du.MigratedAlerts {
+			if pair.AlertRule != nil && pair.AlertRule.UID != "" {
+				ruleUids = append(ruleUids, pair.AlertRule.UID)
+			}
+		}
+		if len(ruleUids) > 0 {
+			err := om.migrationStore.DeleteAlertRules(ctx, om.orgID, ruleUids...)
+			if err != nil {
+				return fmt.Errorf("failed to delete existing alert rules: %w", err)
+			}
+		}
+
+		// Delete newly created folder if one exists and there should be nothing in it. //TODO: maybe we should just clean up empty ones at the end?
+		if du.NewFolderUID != "" && du.NewFolderUID != du.FolderUID {
+			// Remove uid from summary.createdFolders
+			found := false
+			for i, uid := range om.state.CreatedFolders {
+				if uid == du.NewFolderUID {
+					om.state.CreatedFolders = append(om.state.CreatedFolders[:i], om.state.CreatedFolders[i+1:]...)
+					found = true
+					break
+				}
+			}
+			// Safety check to prevent deleting folders that were not created by this migration.
+			if found {
+				err := om.folderHelper.migrationStore.DeleteFolders(ctx, om.orgID, du.NewFolderUID)
+				if err != nil {
+					return fmt.Errorf("failed to delete folder '%s': %w", du.NewFolderName, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// MigrateAlert migrates a single dashboard alert from legacy alerting to unified alerting.
+func (om *OrgMigration) migrateAlert(ctx context.Context, l log.Logger, alert *legacymodels.Alert, info migmodels.DashboardUpgradeInfo) (*ngmodels.AlertRule, error) {
+	l.Debug("migrating alert rule to Unified Alerting")
+	rawSettings, err := json.Marshal(alert.Settings)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get settings: %w", err)
+	}
+	var parsedSettings dashAlertSettings
+	err = json.Unmarshal(rawSettings, &parsedSettings)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse settings: %w", err)
+	}
+	newCond, err := transConditions(ctx, parsedSettings, alert.OrgID, om.migrationStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to transform conditions: %w", err)
+	}
+
+	channels := om.extractChannelUIDs(ctx, l, alert.OrgID, parsedSettings)
+
+	rule, err := makeAlertRule(l, *newCond, alert, info, channels)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make alert rule: %w", err)
+	}
+
+	return rule, nil
+}
+
 // makeAlertRule creates an alert rule from a dashboard alert and the given translated condition.
-func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, dash *dashboards.Dashboard, folderUID string, channels []string) (*ngmodels.AlertRule, error) {
-	lbls, annotations := addMigrationInfo(l, alert, dash.UID, channels)
+func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, info migmodels.DashboardUpgradeInfo, channels []string) (*ngmodels.AlertRule, error) {
+	lbls, annotations := addMigrationInfo(l, alert, info.DashboardUID, channels)
 	var err error
 
 	data, err := migrateAlertRuleQueries(l, cond.Data)
@@ -94,7 +160,7 @@ func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, dash
 		isPaused = true
 	}
 
-	dashUID := dash.UID
+	dashUID := info.DashboardUID
 	ar := &ngmodels.AlertRule{
 		OrgID:           alert.OrgID,
 		Title:           truncateRuleName(alert.Name),
@@ -103,10 +169,10 @@ func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, dash
 		Data:            data,
 		IntervalSeconds: ruleAdjustInterval(alert.Frequency),
 		Version:         1,
-		NamespaceUID:    folderUID,
+		NamespaceUID:    info.NewFolderUID,
 		DashboardUID:    &dashUID,
 		PanelID:         &alert.PanelID,
-		RuleGroup:       fmt.Sprintf("%s - %d", dash.Title, alert.PanelID), // Unique to this dash alert but still contains useful info.
+		RuleGroup:       fmt.Sprintf("%s - %d", info.DashboardName, alert.PanelID), // Unique to this dash alert but still contains useful info.
 		For:             alert.For,
 		Updated:         time.Now().UTC(),
 		Annotations:     annotations,
@@ -280,7 +346,7 @@ func truncateRuleName(daName string) string {
 }
 
 // extractChannelUIDs extracts the notification channel UIDs from the given legacy dashboard alert parsed settings.
-func (om *orgMigration) extractChannelUIDs(ctx context.Context, l log.Logger, orgID int64, parsedSettings dashAlertSettings) (channelUids []string) {
+func (om *OrgMigration) extractChannelUIDs(ctx context.Context, l log.Logger, orgID int64, parsedSettings dashAlertSettings) (channelUids []string) {
 	// Extracting channel UID/ID.
 	for _, ui := range parsedSettings.Notifications {
 

@@ -151,7 +151,7 @@ func TestServiceRevert(t *testing.T) {
 		require.NotNil(t, getDashboard(t, x, 1, "dash2-1"))
 		require.NotNil(t, getDashboard(t, x, 1, "dash-in-general-1"))
 
-		summary, err := service.migrationStore.GetOrgMigrationSummary(ctx, 1)
+		summary, err := service.migrationStore.GetOrgMigrationState(ctx, 1)
 		require.NoError(t, err)
 
 		// Verify list of created folders.

@@ -8,18 +8,19 @@ import (
 	"github.com/grafana/grafana/pkg/api/response"
 	"github.com/grafana/grafana/pkg/infra/log"
 	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
-	apiModels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
+	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/util"
 )
 
 type UpgradeService interface {
-	MigrateAlert(ctx context.Context, orgID int64, dashboardID int64, panelID int64) (*apiModels.DashboardUpgrade, error)
-	MigrateDashboardAlerts(ctx context.Context, orgID int64, dashboardID int64) (*apiModels.DashboardUpgrade, error)
-	MigrateChannel(ctx context.Context, orgID int64, channelID int64) (*apiModels.ContactPair, error)
-	MigrateAllChannels(ctx context.Context, orgID int64) ([]*apiModels.ContactPair, error)
-	MigrateOrg(ctx context.Context, orgID int64) (*apiModels.OrgMigrationSummary, error)
-	GetOrgMigrationSummary(ctx context.Context, orgID int64) (*apiModels.OrgMigrationSummary, error)
+	MigrateAlert(ctx context.Context, orgID int64, dashboardID int64, panelID int64, replace bool) (migmodels.OrgMigrationSummary, error)
+	MigrateDashboardAlerts(ctx context.Context, orgID int64, dashboardID int64, replace bool) (migmodels.OrgMigrationSummary, error)
+	MigrateAllDashboardAlerts(ctx context.Context, orgID int64, replace bool) (migmodels.OrgMigrationSummary, error)
+	MigrateChannel(ctx context.Context, orgID int64, channelID int64, replace bool) (migmodels.OrgMigrationSummary, error)
+	MigrateAllChannels(ctx context.Context, orgID int64, replace bool) (migmodels.OrgMigrationSummary, error)
+	MigrateOrg(ctx context.Context, orgID int64, replace bool) (migmodels.OrgMigrationSummary, error)
+	GetOrgMigrationState(ctx context.Context, orgID int64) (*migmodels.OrgMigrationState, error)
 	RevertOrg(ctx context.Context, orgID int64) error
 }
 
@@ -47,12 +48,12 @@ func (srv *UpgradeSrv) RoutePostUpgradeOrg(c *contextmodel.ReqContext) response.
 		return response.Error(http.StatusForbidden, "This endpoint is not available with UA enabled.", nil)
 	}
 
-	summary, err := srv.upgradeService.MigrateOrg(c.Req.Context(), c.OrgID)
+	summary, err := srv.upgradeService.MigrateOrg(c.Req.Context(), c.OrgID, c.QueryBool("skipExisting"))
 	if err != nil {
 		return response.Error(http.StatusInternalServerError, "Server error", err)
 	}
 	//return response.JSON(http.StatusOK, util.DynMap{"message": "Grafana Alerting resources created based on existing alerts and notification channels."})
-	return response.JSON(http.StatusOK, summary)
+	return response.JSON(http.StatusOK, FromOrgMigrationSummary(summary))
 }
 
 func (srv *UpgradeSrv) RouteGetOrgUpgrade(c *contextmodel.ReqContext) response.Response {
@@ -61,11 +62,11 @@ func (srv *UpgradeSrv) RouteGetOrgUpgrade(c *contextmodel.ReqContext) response.R
 		return response.Error(http.StatusForbidden, "This endpoint is not available with UA enabled.", nil)
 	}
 
-	summary, err := srv.upgradeService.GetOrgMigrationSummary(c.Req.Context(), c.OrgID)
+	state, err := srv.upgradeService.GetOrgMigrationState(c.Req.Context(), c.OrgID)
 	if err != nil {
 		return response.Error(http.StatusInternalServerError, "Server error", err)
 	}
-	return response.JSON(http.StatusOK, summary)
+	return response.JSON(http.StatusOK, FromMigrationState(state))
 }
 
 func (srv *UpgradeSrv) RouteDeleteOrgUpgrade(c *contextmodel.ReqContext) response.Response {
@@ -97,11 +98,11 @@ func (srv *UpgradeSrv) RoutePostUpgradeAlert(c *contextmodel.ReqContext, dashboa
 		return ErrResp(http.StatusBadRequest, err, "failed to parse panelId")
 	}
 
-	dashUpgrade, err := srv.upgradeService.MigrateAlert(c.Req.Context(), c.OrgID, dashboardId, panelId)
+	summary, err := srv.upgradeService.MigrateAlert(c.Req.Context(), c.OrgID, dashboardId, panelId, c.QueryBool("skipExisting"))
 	if err != nil {
 		return response.Error(http.StatusInternalServerError, "Server error", err)
 	}
-	return response.JSON(http.StatusOK, dashUpgrade)
+	return response.JSON(http.StatusOK, FromOrgMigrationSummary(summary))
 }
 
 func (srv *UpgradeSrv) RoutePostUpgradeDashboard(c *contextmodel.ReqContext, dashboardIdParam string) response.Response {
@@ -115,11 +116,24 @@ func (srv *UpgradeSrv) RoutePostUpgradeDashboard(c *contextmodel.ReqContext, das
 		return ErrResp(http.StatusBadRequest, err, "failed to parse dashboardId")
 	}
 
-	dashUpgrade, err := srv.upgradeService.MigrateDashboardAlerts(c.Req.Context(), c.OrgID, dashboardId)
+	summary, err := srv.upgradeService.MigrateDashboardAlerts(c.Req.Context(), c.OrgID, dashboardId, c.QueryBool("skipExisting"))
 	if err != nil {
 		return response.Error(http.StatusInternalServerError, "Server error", err)
 	}
-	return response.JSON(http.StatusOK, dashUpgrade)
+	return response.JSON(http.StatusOK, FromOrgMigrationSummary(summary))
+}
+
+func (srv *UpgradeSrv) RoutePostUpgradeAllDashboards(c *contextmodel.ReqContext) response.Response {
+	// If UA is enabled, we don't want to allow the user to use this endpoint to upgrade anymore.
+	if srv.cfg.UnifiedAlerting.IsEnabled() {
+		return response.Error(http.StatusForbidden, "This endpoint is not available with UA enabled.", nil)
+	}
+
+	summary, err := srv.upgradeService.MigrateAllDashboardAlerts(c.Req.Context(), c.OrgID, c.QueryBool("skipExisting"))
+	if err != nil {
+		return response.Error(http.StatusInternalServerError, "Server error", err)
+	}
+	return response.JSON(http.StatusOK, FromOrgMigrationSummary(summary))
 }
 
 func (srv *UpgradeSrv) RoutePostUpgradeChannel(c *contextmodel.ReqContext, channelIdParam string) response.Response {
@@ -133,11 +147,11 @@ func (srv *UpgradeSrv) RoutePostUpgradeChannel(c *contextmodel.ReqContext, chann
 		return ErrResp(http.StatusBadRequest, err, "failed to parse channelId")
 	}
 
-	pair, err := srv.upgradeService.MigrateChannel(c.Req.Context(), c.OrgID, channelId)
+	summary, err := srv.upgradeService.MigrateChannel(c.Req.Context(), c.OrgID, channelId, c.QueryBool("skipExisting"))
 	if err != nil {
 		return response.Error(http.StatusInternalServerError, "Server error", err)
 	}
-	return response.JSON(http.StatusOK, pair)
+	return response.JSON(http.StatusOK, FromOrgMigrationSummary(summary))
 }
 
 func (srv *UpgradeSrv) RoutePostUpgradeAllChannels(c *contextmodel.ReqContext) response.Response {
@@ -146,9 +160,9 @@ func (srv *UpgradeSrv) RoutePostUpgradeAllChannels(c *contextmodel.ReqContext) r
 		return response.Error(http.StatusForbidden, "This endpoint is not available with UA enabled.", nil)
 	}
 
-	pair, err := srv.upgradeService.MigrateAllChannels(c.Req.Context(), c.OrgID)
+	summary, err := srv.upgradeService.MigrateAllChannels(c.Req.Context(), c.OrgID, c.QueryBool("skipExisting"))
 	if err != nil {
 		return response.Error(http.StatusInternalServerError, "Server error", err)
 	}
-	return response.JSON(http.StatusOK, pair)
+	return response.JSON(http.StatusOK, FromOrgMigrationSummary(summary))
 }

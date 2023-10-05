@@ -15,11 +15,18 @@ import (
 	"github.com/grafana/grafana/pkg/services/dashboards"
 	"github.com/grafana/grafana/pkg/services/datasources"
 	"github.com/grafana/grafana/pkg/services/folder"
+	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 	"github.com/grafana/grafana/pkg/services/user"
 )
+
+// DASHBOARD_FOLDER is the format used to generate the folder name for migrated dashboards with custom permissions.
+const DASHBOARD_FOLDER = "%s Alerts - %s"
+
+// MaxFolderName is the maximum length of the folder name generated using DASHBOARD_FOLDER format
+const MaxFolderName = 255
 
 var (
 	// migratorPermissions are the permissions required for the background user to migrate alerts.
@@ -68,61 +75,108 @@ func getMigrationUser(orgID int64) identity.Requester {
 	return accesscontrol.BackgroundUser("ngalert_migration", orgID, org.RoleAdmin, migratorPermissions)
 }
 
+func (fh *folderHelper) createMigratedDashboardUpgrade(ctx context.Context, log log.Logger, dashID int64) (*migmodels.DashboardUpgrade, error) {
+	du := &migmodels.DashboardUpgrade{
+		DashboardUpgradeInfo: &migmodels.DashboardUpgradeInfo{
+			DashboardID: dashID,
+		},
+	}
+
+	dash, err := fh.migrationStore.GetDashboard(ctx, fh.orgID, dashID)
+	if err != nil {
+		return du, fmt.Errorf("failed to get dashboard: %w", err)
+	}
+	du.SetDashboard(dash.UID, dash.Title)
+	l := log.New("dashboardTitle", dash.Title, "dashboardUID", dash.UID)
+
+	provisioned, err := fh.migrationStore.IsProvisioned(ctx, fh.orgID, dash.UID)
+	if err != nil {
+		l.Warn("failed to get provisioned status for dashboard", "error", err)
+		du.AddWarning(fmt.Errorf("failed to get provisioned status: %w", err).Error())
+	}
+	du.Provisioned = provisioned
+
+	//var migratedFolder *folder.Folder
+	dashFolder, err := fh.getFolder(ctx, dash)
+	if err != nil {
+		l.Warn("Failed to find folder for dashboard", "missing_folder_id", dash.FolderID, "error", err)
+	}
+	if dashFolder != nil {
+		du.SetFolder(dashFolder.UID, dashFolder.Title)
+		l = l.New("folderUID", du.FolderUID, "folderName", du.FolderName)
+	}
+
+	// If we're only migrating new alerts and there are existing alerts for this dashboard, we need to make sure that
+	// the new alerts are migrating to the same folder as the old ones. Otherwise, we'll end up with a mix of different
+	// folders for the same dashboard. This can happen if the permissions were changed on the dashboard or folder after
+	// the previous migration.
+	migratedFolder, err := fh.getOrCreateMigratedFolder(ctx, l, dash, dashFolder)
+	if err != nil {
+		return du, fmt.Errorf("failed to get or create folder for new alert rule: %w", err)
+	}
+	if migratedFolder.Title == generalAlertingFolderTitle {
+		du.AddWarning("dashboard alerts moved to general alerting folder during upgrade: original folder not found")
+	} else if dashFolder.UID != migratedFolder.UID {
+		du.AddWarning("dashboard alerts moved to new folder during upgrade: folder permission changes were needed")
+	}
+	du.SetNewFolder(migratedFolder.UID, migratedFolder.Title)
+	return du, nil
+}
+
 // getOrCreateMigratedFolder returns the folder that alerts in a given dashboard should migrate to.
 // If the dashboard has no custom permissions, this should be the same folder as dash.FolderID.
 // If the dashboard has custom permissions that affect access, this should be a new folder with migrated permissions relating to both the dashboard and parent folder.
 // Any dashboard that has greater read/write permissions for an orgRole/team/user compared to its folder will necessitate creating a new folder with the same permissions as the dashboard.
-func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Logger, dash *dashboards.Dashboard) (*folder.Folder, *folder.Folder, error) {
-	dashFolder, err := fh.getFolder(ctx, dash)
-	if err != nil {
-		// If folder does not exist then the dashboard is an orphan. We migrate the alert to the general alerting folder.
-		l.Warn("Failed to find folder for dashboard. Migrate rule to the default folder", "missing_folder_id", dash.FolderID, "error", err)
-		migratedFolder, err := fh.getOrCreateGeneralAlertingFolder(ctx, fh.orgID)
+func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Logger, dash *dashboards.Dashboard, parentFolder *folder.Folder) (*folder.Folder, error) {
+	// If parentFolder does not exist then the dashboard is an orphan. We migrate the alert to the general alerting folder.\
+	if parentFolder == nil {
+		l.Debug("Migrating alert to the general alerting folder")
+		f, err := fh.getOrCreateGeneralAlertingFolder(ctx, fh.orgID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get or create general folder: %w", err)
+			return nil, fmt.Errorf("failed to get or create general alerting folder: %w", err)
 		}
-		return nil, migratedFolder, nil
+		return f, nil
 	}
 
-	// Now that we have a folder for the dashboard, check if the dashboard has custom permissions. If it does, we need to create a new folder for it.
+	// Check if the dashboard has custom permissions. If it does, we need to create a new folder for it.
 	// This folder will be cached for re-use for each dashboard in the folder with the same permissions.
-	customFolders, ok := fh.permissionsMap[dashFolder.ID]
+	customFolders, ok := fh.permissionsMap[parentFolder.ID]
 	if !ok {
 		customFolders = make(map[permissionHash]*folder.Folder)
 		fh.permissionsMap[dash.FolderID] = customFolders
 
-		folderPerms, err := fh.getFolderPermissions(ctx, dashFolder)
+		folderPerms, err := fh.getFolderPermissions(ctx, parentFolder)
 		if err != nil {
-			return dashFolder, nil, fmt.Errorf("failed to get folder permissions: %w", err)
+			return nil, fmt.Errorf("failed to get folder permissions: %w", err)
 		}
 		newFolderPerms, _ := fh.convertResourcePerms(folderPerms)
 
 		// We assign the folder to the cache so that any dashboards with identical equivalent permissions will use the parent folder instead of creating a new one.
 		folderPermsHash, err := createHash(newFolderPerms)
 		if err != nil {
-			return dashFolder, nil, fmt.Errorf("failed to get hash of folder permissions: %w", err)
+			return nil, fmt.Errorf("failed to get hash of folder permissions: %w", err)
 		}
-		customFolders[folderPermsHash] = dashFolder
+		customFolders[folderPermsHash] = parentFolder
 	}
 
 	// Now we compute the hash of the dashboard permissions and check if we have a folder for it. If not, we create a new one.
 	perms, err := fh.getDashboardPermissions(ctx, dash)
 	if err != nil {
-		return dashFolder, nil, fmt.Errorf("failed to get dashboard permissions: %w", err)
+		return nil, fmt.Errorf("failed to get dashboard permissions: %w", err)
 	}
 	newPerms, unusedPerms := fh.convertResourcePerms(perms)
 	hash, err := createHash(newPerms)
 	if err != nil {
-		return dashFolder, nil, fmt.Errorf("failed to get hash of dashboard permissions: %w", err)
+		return nil, fmt.Errorf("failed to get hash of dashboard permissions: %w", err)
 	}
 
 	customFolder, ok := customFolders[hash]
 	if !ok {
-		folderName := generateAlertFolderName(dashFolder, hash)
+		folderName := generateAlertFolderName(parentFolder, hash)
 		l.Info("dashboard has custom permissions, create a new folder for alerts.", "newFolder", folderName)
 		f, err := fh.createFolder(ctx, fh.orgID, folderName, newPerms)
 		if err != nil {
-			return dashFolder, nil, fmt.Errorf("failed to create new folder: %w", err)
+			return nil, fmt.Errorf("failed to create new folder: %w", err)
 		}
 
 		// If the role is not managed or basic we don't attempt to migrate its permissions. This is because
@@ -136,10 +190,10 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 		}
 
 		customFolders[hash] = f
-		return dashFolder, f, nil
+		return f, nil
 	}
 
-	return dashFolder, customFolder, nil
+	return customFolder, nil
 }
 
 // generateAlertFolderName generates a folder name for alerts that belong to a dashboard with custom permissions.

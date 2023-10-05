@@ -2,23 +2,21 @@ package definitions
 
 import (
 	"github.com/prometheus/common/model"
-
-	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 )
 
 // swagger:route GET /api/v1/upgrade/org upgrade RouteGetOrgUpgrade
 //
-// Get existing alerting upgrade for current organization.
+// Get existing alerting upgrade for the current organization.
 //
 //     Produces:
 //     - application/json
 //
 //     Responses:
-//       200: OrgMigrationSummary
+//       200: OrgMigrationState
 
 // swagger:route POST /api/v1/upgrade/org upgrade RoutePostUpgradeOrg
 //
-// Upgrade all legacy alerts for current organization.
+// Upgrade all legacy alerts for the current organization.
 //
 //     Produces:
 //     - application/json
@@ -28,7 +26,7 @@ import (
 
 // swagger:route DELETE /api/v1/upgrade/org upgrade RouteDeleteOrgUpgrade
 //
-// Delete existing alerting upgrade for current organization.
+// Delete existing alerting upgrade for the current organization.
 //
 //     Produces:
 //     - application/json
@@ -38,43 +36,62 @@ import (
 
 // swagger:route POST /api/v1/upgrade/dashboards/{DashboardID}/panels/{PanelID} upgrade RoutePostUpgradeAlert
 //
-// Upgrade single legacy dashboard alert.
+// Upgrade single legacy dashboard alert for the current organization.
 //
 //     Produces:
 //     - application/json
 //
 //     Responses:
-//       200: DashboardUpgrade
+//       200: OrgMigrationSummary
 
 // swagger:route POST /api/v1/upgrade/dashboards/{DashboardID} upgrade RoutePostUpgradeDashboard
 //
-// Upgrade all legacy dashboard alerts on a dashboard.
+// Upgrade all legacy dashboard alerts on a dashboard for the current organization.
 //
 //     Produces:
 //     - application/json
 //
 //     Responses:
-//       200: DashboardUpgrade
+//       200: OrgMigrationSummary
+
+// swagger:route POST /api/v1/upgrade/dashboards upgrade RoutePostUpgradeAllDashboards
+//
+// Upgrade all legacy dashboard alerts for the current organization.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       200: OrgMigrationSummary
 
 // swagger:route POST /api/v1/upgrade/channels upgrade RoutePostUpgradeAllChannels
 //
-// Upgrade all legacy notification channels for current organization.
+// Upgrade all legacy notification channels for the current organization.
 //
 //     Produces:
 //     - application/json
 //
 //     Responses:
-//       200: []ContactPair
+//       200: OrgMigrationSummary
 
 // swagger:route POST /api/v1/upgrade/channels/{ChannelID} upgrade RoutePostUpgradeChannel
 //
-// Upgrade a single legacy notification channel for current organization.
+// Upgrade a single legacy notification channel for the current organization.
 //
 //     Produces:
 //     - application/json
 //
 //     Responses:
-//       200: ContactPair
+//       200: OrgMigrationSummary
+
+// swagger:parameters RoutePostUpgradeOrg RoutePostUpgradeDashboard RoutePostUpgradeChannel RoutePostUpgradeAllChannels
+type SkipExistingQueryParam struct {
+	// If true, legacy alert and notification channel upgrades from previous runs will be skipped. Otherwise, they will be replaced.
+	// in:query
+	// required:false
+	// default:false
+	SkipExisting bool
+}
 
 // swagger:parameters RoutePostUpgradeAlert RoutePostUpgradeDashboard
 type DashboardParam struct {
@@ -102,10 +119,17 @@ type ChannelParam struct {
 
 // swagger:model
 type OrgMigrationSummary struct {
+	NewDashboards int  `json:"newDashboards"`
+	NewAlerts     int  `json:"newAlerts"`
+	NewChannels   int  `json:"newChannels"`
+	HasErrors     bool `json:"hasErrors"`
+}
+
+// swagger:model
+type OrgMigrationState struct {
 	OrgID              int64               `json:"orgId"`
 	MigratedDashboards []*DashboardUpgrade `json:"migratedDashboards"`
 	MigratedChannels   []*ContactPair      `json:"migratedChannels"`
-	CreatedFolders     []string            `json:"createdFolders"`
 	Errors             []string            `json:"errors"`
 }
 
@@ -121,72 +145,6 @@ type DashboardUpgrade struct {
 	Provisioned    bool         `json:"provisioned"`
 	Errors         []string     `json:"errors"`
 	Warnings       []string     `json:"warnings"`
-}
-
-func (oms *OrgMigrationSummary) GetDashboardUpgrade(dashboardId int64) *DashboardUpgrade {
-	for _, du := range oms.MigratedDashboards {
-		if du.DashboardID == dashboardId {
-			return du
-		}
-	}
-	return nil
-}
-
-func (oms *OrgMigrationSummary) PopDashboardUpgrade(dashboardId int64) *DashboardUpgrade {
-	for i, du := range oms.MigratedDashboards {
-		if du.DashboardID == dashboardId {
-			oms.MigratedDashboards = append(oms.MigratedDashboards[:i], oms.MigratedDashboards[i+1:]...)
-			return du
-		}
-	}
-	return nil
-}
-
-func (du *DashboardUpgrade) PopAlertPairByPanelID(panelID int64) *AlertPair {
-	for i, pair := range du.MigratedAlerts {
-		if pair.LegacyAlert.PanelID == panelID {
-			du.MigratedAlerts = append(du.MigratedAlerts[:i], du.MigratedAlerts[i+1:]...)
-			return pair
-		}
-	}
-	return nil
-}
-
-func (du *DashboardUpgrade) SetDashboard(uid, name string) {
-	du.DashboardUID = uid
-	du.DashboardName = name
-}
-func (du *DashboardUpgrade) SetFolder(uid, name string) {
-	du.FolderUID = uid
-	du.FolderName = name
-}
-func (du *DashboardUpgrade) SetNewFolder(uid, name string) {
-	du.NewFolderUID = uid
-	du.NewFolderName = name
-}
-func (du *DashboardUpgrade) AddAlert(da *legacymodels.Alert) *AlertPair {
-	pair := &AlertPair{
-		LegacyAlert: &LegacyAlert{
-			Modified:       false,
-			ID:             da.ID,
-			DashboardID:    da.DashboardID,
-			PanelID:        da.PanelID,
-			Name:           da.Name,
-			Paused:         da.State == legacymodels.AlertStatePaused,
-			Silenced:       da.Silenced,
-			ExecutionError: da.ExecutionError,
-			Frequency:      da.Frequency,
-			For:            model.Duration(da.For),
-		},
-	}
-	du.MigratedAlerts = append(du.MigratedAlerts, pair)
-	return pair
-}
-func (du *DashboardUpgrade) AddAlertErrors(err error, alerts ...*legacymodels.Alert) {
-	for _, da := range alerts {
-		pair := du.AddAlert(da)
-		pair.Error = err.Error()
-	}
 }
 
 type AlertPair struct {

@@ -1,5 +1,3 @@
-import {uniq} from 'lodash';
-
 import {FetchError, isFetchError} from '@grafana/runtime';
 
 import {
@@ -12,10 +10,16 @@ import {notifyApp} from '../../../../core/reducers/appNotification';
 import {alertingApi} from './alertingApi';
 
 export interface OrgMigrationSummary {
+  newDashboards: number;
+  newAlerts: number;
+  newChannels: number;
+  hasErrors: boolean;
+}
+
+export interface OrgMigrationState {
   orgId: number;
   migratedDashboards: DashboardUpgrade[];
   migratedChannels: ContactPair[];
-  createdFolders: string[];
   errors: string[];
 }
 
@@ -105,150 +109,186 @@ function isFetchBaseQueryError(error: unknown): error is { error: FetchError } {
 
 export const upgradeApi = alertingApi.injectEndpoints({
   endpoints: (build) => ({
-    upgradeChannel: build.mutation<ContactPair, {channelId: number}>({
-      query: ({channelId}) => ({
-        url: `/api/v1/upgrade/channels/${channelId}`,
+    upgradeChannel: build.mutation<OrgMigrationSummary, {channelId: number, skipExisting: boolean}>({
+      query: ({channelId, skipExisting}) => ({
+        url: `/api/v1/upgrade/channels/${channelId}${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
-      invalidatesTags: ['OrgMigrationSummary'],
-      async onQueryStarted(undefined, { dispatch, queryFulfilled }) {
+      invalidatesTags: ['OrgMigrationState'],
+      async onQueryStarted({channelId}, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled
-          if(data.error) {
-            dispatch(notifyApp(createWarningNotification(`Legacy notification channel upgrade failed`, data.error)));
+          if(data.hasErrors) {
+            dispatch(notifyApp(createWarningNotification(`Failed to upgrade notification channel '${channelId}'`)));
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Legacy notification channel upgraded`)));
+            dispatch(notifyApp(createSuccessNotification(`Upgraded notification channel '${channelId}'`)));
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
-            dispatch(notifyApp(createErrorNotification('Legacy notification channel upgrade request failed', e.error.data.error)));
+            dispatch(notifyApp(createErrorNotification('Request failed', e.error.data.error)));
           } else {
-            dispatch(notifyApp(createErrorNotification(`Legacy notification channel upgrade request failed`)));
+            dispatch(notifyApp(createErrorNotification(`Request failed`)));
           }
         }
       },
     }),
-    upgradeAllChannels: build.mutation<ContactPair[], void>({
-      query: () => ({
-        url: `/api/v1/upgrade/channels`,
+    upgradeAllChannels: build.mutation<OrgMigrationSummary, {skipExisting: boolean}>({
+      query: ({skipExisting}) => ({
+        url: `/api/v1/upgrade/channels${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
-      invalidatesTags: ['OrgMigrationSummary'],
-      async onQueryStarted(undefined, { dispatch, queryFulfilled }) {
+      invalidatesTags: ['OrgMigrationState'],
+      async onQueryStarted({skipExisting}, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled
-          const nestedError = (data ?? []).map((pair) => pair.error ?? '').filter((error) => !!error);
-          if(nestedError.length > 0) {
-            dispatch(notifyApp(createWarningNotification(`Legacy notification channels upgrade failed`, uniq(nestedError).join('\n'))));
+          if(data.hasErrors) {
+            dispatch(notifyApp(createWarningNotification(`Issues while upgrading ${data.newChannels} ${skipExisting?'new ':''}notification channels`)));
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Legacy notification channels upgraded`)));
+            dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newChannels} ${skipExisting?'new ':''}notification channels`)));
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
-            dispatch(notifyApp(createErrorNotification('Legacy notification channels upgrade request failed', e.error.data.error)));
+            dispatch(notifyApp(createErrorNotification('Request failed', e.error.data.error)));
           } else {
-            dispatch(notifyApp(createErrorNotification(`Legacy notification channels upgrade request failed`)));
+            dispatch(notifyApp(createErrorNotification(`Request failed`)));
           }
         }
       },
     }),
-    upgradeAlert: build.mutation<DashboardUpgrade, {dashboardId: number, panelId: number}>({
-      query: ({dashboardId, panelId}) => ({
-        url: `/api/v1/upgrade/dashboards/${dashboardId}/panels/${panelId}`,
+    upgradeAlert: build.mutation<OrgMigrationSummary, {dashboardId: number, panelId: number, skipExisting: boolean}>({
+      query: ({dashboardId, panelId, skipExisting}) => ({
+        url: `/api/v1/upgrade/dashboards/${dashboardId}/panels/${panelId}${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
-      invalidatesTags: ['OrgMigrationSummary'],
-      async onQueryStarted({panelId}, { dispatch, queryFulfilled }) {
+      invalidatesTags: ['OrgMigrationState'],
+      async onQueryStarted({dashboardId, panelId}, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled
-          const pair = (data?.migratedAlerts ?? []).find((pair) => pair.legacyAlert.panelId === panelId);
-          if ( pair?.error ) {
-            dispatch(notifyApp(createWarningNotification(`Legacy alert upgrade failed`, pair.error)));
+          if ( data.hasErrors ) {
+            dispatch(notifyApp(createWarningNotification(`Failed to upgrade alert from dashboard '${dashboardId}', panel '${panelId}'`)));
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Legacy alert upgraded`)));
+            dispatch(notifyApp(createSuccessNotification(`Upgraded alert from dashboard '${dashboardId}', panel '${panelId}'`)));
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
-            dispatch(notifyApp(createErrorNotification('Legacy alert upgrade request failed', e.error.data.error)));
+            dispatch(notifyApp(createErrorNotification('Request failed', e.error.data.error)));
           } else {
-            dispatch(notifyApp(createErrorNotification(`Legacy alert upgrade request failed`)));
+            dispatch(notifyApp(createErrorNotification(`Request failed`)));
           }
         }
       },
     }),
-    upgradeDashboard: build.mutation<DashboardUpgrade, {dashboardId: number}>({
-      query: ({dashboardId}) => ({
-        url: `/api/v1/upgrade/dashboards/${dashboardId}`,
+    upgradeDashboard: build.mutation<OrgMigrationSummary, {dashboardId: number, skipExisting: boolean}>({
+      query: ({dashboardId, skipExisting}) => ({
+        url: `/api/v1/upgrade/dashboards/${dashboardId}${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
-      invalidatesTags: ['OrgMigrationSummary'],
-      async onQueryStarted(undefined, { dispatch, queryFulfilled }) {
+      invalidatesTags: ['OrgMigrationState'],
+      async onQueryStarted({dashboardId, skipExisting}, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled
-          const error = (data?.errors ?? []).join('\n');
-          const nestedError = (data?.migratedAlerts ?? []).map((alertPair) => alertPair.error ?? '').filter((error) => !!error);
-          if ( error ) {
-            dispatch(notifyApp(createWarningNotification(`Legacy dashboard alerts upgrade failed`, error)));
-          } else if(nestedError.length > 0) {
-            dispatch(notifyApp(createWarningNotification(`Legacy dashboard alerts upgrade failed`, uniq(nestedError).join('\n'))));
+          if(data.hasErrors) {
+            dispatch(notifyApp(createWarningNotification(`Issues while upgrading ${data.newAlerts} ${skipExisting?'new ':''}alerts from dashboard '${dashboardId}'`)));
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Legacy dashboard alerts upgraded`)));
+            dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newAlerts} ${skipExisting?'new ':''}alerts from dashboard '${dashboardId}'`)));
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
-            dispatch(notifyApp(createErrorNotification('Legacy dashboard alerts upgrade request failed', e.error.data.error)));
+            dispatch(notifyApp(createErrorNotification('Request failed', e.error.data.error)));
           } else {
-            dispatch(notifyApp(createErrorNotification(`Legacy dashboard alerts upgrade request failed`)));
+            dispatch(notifyApp(createErrorNotification(`Request failed`)));
           }
         }
       },
     }),
-    upgradeOrg: build.mutation<OrgMigrationSummary, void>({
-      query: () => ({
-        url: `/api/v1/upgrade/org`,
+    upgradeAllDashboards: build.mutation<OrgMigrationSummary, {skipExisting: boolean}>({
+      query: ({skipExisting}) => ({
+        url: `/api/v1/upgrade/dashboards${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
+        showSuccessAlert: false,
+        showErrorAlert: false,
       }),
-      invalidatesTags: ['OrgMigrationSummary'],
+      invalidatesTags: ['OrgMigrationState'],
+      async onQueryStarted({skipExisting}, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled
+          if(data.hasErrors) {
+            dispatch(notifyApp(createWarningNotification(`Issues while upgrading ${data.newAlerts} ${skipExisting?'new ':''}alerts in ${data.newDashboards} dashboards`)));
+          } else {
+            dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newAlerts} ${skipExisting?'new ':''}alerts in ${data.newDashboards} dashboards`)));
+          }
+        } catch (e) {
+          if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
+            dispatch(notifyApp(createErrorNotification('Request failed', e.error.data.error)));
+          } else {
+            dispatch(notifyApp(createErrorNotification(`Request failed`)));
+          }
+        }
+      },
     }),
-    cancelOrgUpgrade: build.mutation<OrgMigrationSummary, void>({
+    upgradeOrg: build.mutation<OrgMigrationSummary, {skipExisting: boolean}>({
+      query: ({skipExisting}) => ({
+        url: `/api/v1/upgrade/org${skipExisting ? '?skipExisting=true' : ''}`,
+        method: 'POST',
+        showSuccessAlert: false,
+        showErrorAlert: false,
+      }),
+      invalidatesTags: ['OrgMigrationState'],
+      async onQueryStarted({skipExisting}, { dispatch, getCacheEntry, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled
+          if(data.hasErrors) {
+            dispatch(notifyApp(createWarningNotification(`Issues while upgrading ${data.newAlerts} ${skipExisting?'new ':''}alerts in ${data.newDashboards} dashboards and ${data.newChannels} ${skipExisting?'new ':''}notification channels`)));
+          } else {
+            dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newAlerts} ${skipExisting?'new ':''}alerts in ${data.newDashboards} dashboards and ${data.newChannels} ${skipExisting?'new ':''}notification channels`)));
+          }
+        } catch (e) {
+          if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
+            dispatch(notifyApp(createErrorNotification('Request failed', e.error.data.error)));
+          } else {
+            dispatch(notifyApp(createErrorNotification(`Request failed`)));
+          }
+        }
+      },
+    }),
+    cancelOrgUpgrade: build.mutation<void, void>({
       query: () => ({
         url: `/api/v1/upgrade/org`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['OrgMigrationSummary'],
+      invalidatesTags: ['OrgMigrationState'],
       async onQueryStarted(undefined, { dispatch, queryFulfilled }) {
         // This helps prevent flickering of old tables after the cancel button is clicked.
         try {
           await queryFulfilled
           dispatch(
             upgradeApi.util.updateQueryData('getOrgUpgradeSummary', undefined, (draft) => {
-              const defaultSummary: OrgMigrationSummary = {
+              const defaultState: OrgMigrationState = {
                 orgId: 0,
                 migratedDashboards: [],
                 migratedChannels: [],
-                createdFolders: [],
                 errors: [],
               };
-              Object.assign(draft, defaultSummary)
+              Object.assign(draft, defaultState)
             })
           )
         } catch {}
       },
     }),
-    getOrgUpgradeSummary: build.query<OrgMigrationSummary, void>({
+    getOrgUpgradeSummary: build.query<OrgMigrationState, void>({
       query: () => ({
         url: `/api/v1/upgrade/org`,
       }),
-      providesTags: ['OrgMigrationSummary'],
-      transformResponse: (summary: OrgMigrationSummary): OrgMigrationSummary => {
+      providesTags: ['OrgMigrationState'],
+      transformResponse: (summary: OrgMigrationState): OrgMigrationState => {
         summary.migratedDashboards = summary.migratedDashboards ?? [];
         summary.migratedChannels = summary.migratedChannels ?? [];
         summary.errors = summary.errors ?? [];

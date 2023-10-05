@@ -36,7 +36,7 @@ import PageLoader from '../../core/components/PageLoader/PageLoader';
 import {MatcherOperator} from '../../plugins/datasource/alertmanager/types';
 import {getSearchPlaceholder} from '../search/tempI18nPhrases';
 
-import {AlertPair, ContactPair, DashboardUpgrade, OrgMigrationSummary, upgradeApi} from "./unified/api/upgradeApi";
+import {AlertPair, ContactPair, DashboardUpgrade, OrgMigrationState, upgradeApi} from "./unified/api/upgradeApi";
 import {DynamicTable, DynamicTableColumnProps, DynamicTableItemProps} from "./unified/components/DynamicTable";
 import {DynamicTableWithGuidelines} from "./unified/components/DynamicTableWithGuidelines";
 import {ProvisioningBadge} from "./unified/components/Provisioning";
@@ -215,7 +215,7 @@ const CTAElement = () => {
   const [startUpgrade, {isLoading}] = useUpgradeOrgMutation();
 
   const upgradeAlerting = async () => {
-    await startUpgrade()
+    await startUpgrade({skipExisting: false})
   }
 
   if (isLoading) {
@@ -278,10 +278,16 @@ const AlertTabContentWrapper = () => {
   const filterParam = "alertFilter";
   const [queryParam] = useSingleQueryParam(filterParam);
 
+  const [startAlertUpgrade, {isLoading}] = upgradeApi.useUpgradeAllDashboardsMutation();
+
+  const syncAlerting = async () => {
+      await startAlertUpgrade({skipExisting: true})
+  }
+
   const selectRows = useMemo(() => {
     const emptyArray: Array<DynamicTableItemProps<DashboardUpgrade>> = [];
     return createSelector(
-      (res: OrgMigrationSummary | undefined) => res?.migratedDashboards ?? [],
+      (res: OrgMigrationState | undefined) => res?.migratedDashboards ?? [],
       (rows) => rows ?? emptyArray,
     )}, [])
 
@@ -298,11 +304,15 @@ const AlertTabContentWrapper = () => {
 
   return <AlertTabContent
     rows={items}
-    filterParam={filterParam}
     queryParam={queryParam}
+    filterParam={filterParam}
     searchSpaceMap={searchSpaceMap}
-    emptyMessage={"No alert upgrades found."}
     searchPlaceholder={getSearchPlaceholder(false)}
+    onSync={syncAlerting}
+    syncText={"Upgrade New Alerts"}
+    syncTooltip={"Upgrade all newly created legacy alerts since the previous run."}
+    isLoading={isLoading}
+    emptyMessage={"No alert upgrades found."}
     columns={columns}
     isExpandable={true}
     renderExpandedContent={renderExpandedContent}
@@ -316,10 +326,17 @@ const ChannelTabContentWrapper = () => {
   const filterParam = "contactFilter";
   const [queryParam] = useSingleQueryParam(filterParam);
 
+
+  const [startChannelUpgrade, {isLoading}] = upgradeApi.useUpgradeAllChannelsMutation();
+
+  const syncAlerting = async () => {
+      await startChannelUpgrade({skipExisting: true})
+  }
+
   const selectRows = useMemo(() => {
     const emptyArray: Array<DynamicTableItemProps<ContactPair>> = [];
     return createSelector(
-      (res: OrgMigrationSummary | undefined) => res?.migratedChannels ?? [],
+      (res: OrgMigrationState | undefined) => res?.migratedChannels ?? [],
       (rows) => rows ?? emptyArray,
     )}, [])
 
@@ -333,11 +350,15 @@ const ChannelTabContentWrapper = () => {
 
   return <ChannelTabContent
     rows={items}
-    filterParam={filterParam}
     queryParam={queryParam}
+    filterParam={filterParam}
     searchSpaceMap={searchSpaceMap}
-    emptyMessage={"No channel upgrades found."}
     searchPlaceholder={"Search for channel and contact point names"}
+    onSync={syncAlerting}
+    syncText={"Upgrade New Channels"}
+    syncTooltip={"Upgrade all newly created legacy notification channels since the previous run."}
+    isLoading={isLoading}
+    emptyMessage={"No channel upgrades found."}
     columns={columns}
   />
 }
@@ -357,14 +378,18 @@ function useSingleQueryParam(name: string): [string | undefined, (values: string
 
 interface UpgradeTabContentProps<T extends object> {
   rows?: T[];
-  filterParam: string;
   queryParam?: string;
+  filterParam: string;
   searchSpaceMap: (row: T) => string;
+  searchPlaceholder: string;
+  onSync: () => void;
+  syncText: string;
+  syncTooltip: string;
+  isLoading: boolean;
   columns: Array<DynamicTableColumnProps<T>>
   isExpandable?: boolean;
   renderExpandedContent?: (item: DynamicTableItemProps<T>) => React.ReactNode;
   emptyMessage: string;
-  searchPlaceholder: string;
 }
 
 const UpgradeTabContent =  <T extends object,>({
@@ -377,6 +402,10 @@ const UpgradeTabContent =  <T extends object,>({
                                  renderExpandedContent,
                                  emptyMessage,
                                  searchPlaceholder,
+                                 onSync,
+                                 syncText,
+                                 syncTooltip,
+                                 isLoading,
                       }: UpgradeTabContentProps<T>) => {
   const styles = useStyles2(getStyles);
 
@@ -415,11 +444,21 @@ const UpgradeTabContent =  <T extends object,>({
               }}
               searchPhrase={filter || ''}
             />
+            <Tooltip theme="info-alt" content={syncTooltip} placement="top">
+              <Button
+                size="md"
+                variant="secondary"
+                onClick={onSync}
+                icon={"plus-circle"}
+              >
+                {syncText}
+              </Button>
+            </Tooltip>
           </Stack>
         </Stack>
       </div>
-
-      {!!items.length && (<div className={wrapperClass}>
+      {isLoading && <PageLoader/>}
+      {!isLoading && !!items.length && (<div className={wrapperClass}>
           <TableComponent
             cols={columns}
             isExpandable={isExpandable}
@@ -430,7 +469,7 @@ const UpgradeTabContent =  <T extends object,>({
           />
         </div>
       )}
-      {!items.length && (
+      {!isLoading && !items.length && (
         <div className={cx(wrapperClass, styles.emptyMessage)}>{emptyMessage}</div>
       )}
     </>
@@ -555,7 +594,7 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
                 key="upgrade-channel"
                 icon="sync"
                 tooltip="re-upgrade legacy notification channel"
-                onClick={() => migrateChannel({channelId: pair.legacyChannel.id})}
+                onClick={() => migrateChannel({channelId: pair.legacyChannel.id, skipExisting: false})}
               />
             </Stack>
           )
@@ -700,7 +739,7 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
               key="upgrade-dashboard"
               icon="sync"
               tooltip="re-upgrade legacy alerts for this dashboard"
-              onClick={() => migrateDashboard({dashboardId: dashUpgrade.dashboardId})}
+              onClick={() => migrateDashboard({dashboardId: dashUpgrade.dashboardId, skipExisting: false})}
             />)}
             {dashUpgrade.folderUid && (<ActionIcon
               aria-label="go to folder"
@@ -819,8 +858,8 @@ const AlertTable = ({
   const selectRowsForDashUpgrade = useMemo(() => {
     const emptyArray: Array<DynamicTableItemProps<AlertPair>> = [];
     return createSelector(
-      (res: OrgMigrationSummary | undefined) => res?.migratedDashboards ?? [],
-      (res: OrgMigrationSummary | undefined, dashboardId: number) => dashboardId,
+      (res: OrgMigrationState | undefined) => res?.migratedDashboards ?? [],
+      (res: OrgMigrationState | undefined, dashboardId: number) => dashboardId,
       (migratedDashboards, dashboardId) => migratedDashboards?.find((du) => du.dashboardId === dashboardId)?.migratedAlerts.map((alertPair, Idx) => {
         return {
           id: `${alertPair?.legacyAlert?.id}-${Idx}`,
@@ -929,7 +968,7 @@ const AlertTable = ({
               key="upgrade-alert"
               icon="sync"
               tooltip="re-upgrade legacy alert"
-              onClick={() => migrateAlert({dashboardId: alertPair.legacyAlert.dashboardId, panelId: alertPair.legacyAlert.panelId})}
+              onClick={() => migrateAlert({dashboardId: alertPair.legacyAlert.dashboardId, panelId: alertPair.legacyAlert.panelId, skipExisting: false})}
             />
           </Stack>
         )

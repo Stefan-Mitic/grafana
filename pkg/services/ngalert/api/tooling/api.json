@@ -349,9 +349,6 @@
    },
    "type": "object"
   },
-  "AlertStateType": {
-   "type": "string"
-  },
   "AlertingFileExport": {
    "properties": {
     "apiVersion": {
@@ -2354,14 +2351,8 @@
    },
    "type": "object"
   },
-  "OrgMigrationSummary": {
+  "OrgMigrationState": {
    "properties": {
-    "createdFolders": {
-     "items": {
-      "type": "string"
-     },
-     "type": "array"
-    },
     "errors": {
      "items": {
       "type": "string"
@@ -2381,6 +2372,26 @@
      "type": "array"
     },
     "orgId": {
+     "format": "int64",
+     "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "OrgMigrationSummary": {
+   "properties": {
+    "hasErrors": {
+     "type": "boolean"
+    },
+    "newAlerts": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "newChannels": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "newDashboards": {
      "format": "int64",
      "type": "integer"
     }

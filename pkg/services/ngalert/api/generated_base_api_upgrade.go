@@ -23,6 +23,7 @@ type UpgradeApi interface {
 	RouteGetOrgUpgrade(*contextmodel.ReqContext) response.Response
 	RoutePostUpgradeAlert(*contextmodel.ReqContext) response.Response
 	RoutePostUpgradeAllChannels(*contextmodel.ReqContext) response.Response
+	RoutePostUpgradeAllDashboards(*contextmodel.ReqContext) response.Response
 	RoutePostUpgradeChannel(*contextmodel.ReqContext) response.Response
 	RoutePostUpgradeDashboard(*contextmodel.ReqContext) response.Response
 	RoutePostUpgradeOrg(*contextmodel.ReqContext) response.Response
@@ -42,6 +43,9 @@ func (f *UpgradeApiHandler) RoutePostUpgradeAlert(ctx *contextmodel.ReqContext) 
 }
 func (f *UpgradeApiHandler) RoutePostUpgradeAllChannels(ctx *contextmodel.ReqContext) response.Response {
 	return f.handleRoutePostUpgradeAllChannels(ctx)
+}
+func (f *UpgradeApiHandler) RoutePostUpgradeAllDashboards(ctx *contextmodel.ReqContext) response.Response {
+	return f.handleRoutePostUpgradeAllDashboards(ctx)
 }
 func (f *UpgradeApiHandler) RoutePostUpgradeChannel(ctx *contextmodel.ReqContext) response.Response {
 	// Parse Path Parameters
@@ -100,6 +104,17 @@ func (api *API) RegisterUpgradeApiEndpoints(srv UpgradeApi, m *metrics.API) {
 				http.MethodPost,
 				"/api/v1/upgrade/channels",
 				api.Hooks.Wrap(srv.RoutePostUpgradeAllChannels),
+				m,
+			),
+		)
+		group.Post(
+			toMacaronPath("/api/v1/upgrade/dashboards"),
+			requestmeta.SetOwner(requestmeta.TeamAlerting),
+			api.authorize(http.MethodPost, "/api/v1/upgrade/dashboards"),
+			metrics.Instrument(
+				http.MethodPost,
+				"/api/v1/upgrade/dashboards",
+				api.Hooks.Wrap(srv.RoutePostUpgradeAllDashboards),
 				m,
 			),
 		)

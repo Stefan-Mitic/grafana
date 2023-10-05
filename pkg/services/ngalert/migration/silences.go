@@ -90,7 +90,7 @@ func createNoDataSilence(rule *models.AlertRule) (*pb.MeshSilence, error) {
 	return s, nil
 }
 
-func (om *orgMigration) writeSilencesFile() error {
+func (om *OrgMigration) writeSilencesFile() error {
 	var buf bytes.Buffer
 	om.log.Info("Writing silences file", "silences", len(om.silences))
 	for _, e := range om.silences {

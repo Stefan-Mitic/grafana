@@ -87,7 +87,7 @@ func configFromReceivers(t *testing.T, receivers []*apimodels.PostableGrafanaRec
 	}
 }
 
-func encryptSecureSettings(c *apimodels.PostableUserConfig, m *orgMigration) error {
+func encryptSecureSettings(c *apimodels.PostableUserConfig, m *OrgMigration) error {
 	for _, r := range c.AlertmanagerConfig.Receivers {
 		for _, gr := range r.GrafanaManagedReceivers {
 			err := m.encryptSecureSettings(gr.SecureSettings)
@@ -132,7 +132,7 @@ func Test_getAlertFolderNameFromDashboard(t *testing.T) {
 }
 
 func Test_shortUIDCaseInsensitiveConflicts(t *testing.T) {
-	s := deduplicator{
+	s := Deduplicator{
 		set:             make(map[string]struct{}),
 		caseInsensitive: true,
 	}

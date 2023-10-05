@@ -14,6 +14,7 @@ import (
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
+	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/secrets"
 )
@@ -23,51 +24,51 @@ const (
 	DisabledRepeatInterval = model.Duration(time.Duration(8736) * time.Hour) // 1y
 )
 
-// setupAlertmanagerConfigs creates Alertmanager configs with migrated receivers and routes.
-func (om *orgMigration) setupAlertmanagerConfigs(ctx context.Context) (*apimodels.PostableUserConfig, error) {
-	channels, err := om.getNotificationChannels(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load notification channels: %w", err)
-	}
-
-	// Nested route that will contain all the migrated channels. This route is matched on the UseLegacyChannelsLabel
-	// and mostly exists to keep the migrated channels separate and organized.
-	amConfig, nestedLegacyChannelRoute := createBaseConfig()
-
+// migrateChannels creates Alertmanager configs with migrated receivers and routes.
+func (om *OrgMigration) migrateChannels(amConfig *MigratedAlertmanagerConfig, channels []*legacymodels.AlertNotification) ([]*migmodels.ContactPair, error) {
 	// Create all newly migrated receivers from legacy notification channels.
+	pairs := make([]*migmodels.ContactPair, 0, len(channels))
 	for _, c := range channels {
-		receiver, route, err := om.migrateChannel(c)
+		receiver, err := om.createReceiver(c)
 		if err != nil {
-			om.log.Warn(err.Error(), "type", c.Type, "name", c.Name, "uid", c.UID)
-			om.summary.MigratedChannels = append(om.summary.MigratedChannels, newContactPair(c, receiver, route, err))
+			om.log.Warn("Failed to create receiver", "type", c.Type, "name", c.Name, "uid", c.UID, "error", err)
+			pairs = append(pairs, newContactPair(c, receiver, nil, fmt.Errorf("create receiver: %w", err)))
 			continue
 		}
 
-		nestedLegacyChannelRoute.Routes = append(nestedLegacyChannelRoute.Routes, route)
+		route, err := createRoute(c, receiver.Name)
+		if err != nil {
+			om.log.Warn("Failed to create route for receiver", "type", c.Type, "name", c.Name, "uid", c.UID, "error", err)
+			pairs = append(pairs, newContactPair(c, receiver, nil, fmt.Errorf("create route: %w", err)))
+			continue
+		}
+
+		amConfig.legacyRoute.Routes = append(amConfig.legacyRoute.Routes, route)
 		amConfig.AlertmanagerConfig.Receivers = append(amConfig.AlertmanagerConfig.Receivers, receiver)
-		om.summary.MigratedChannels = append(om.summary.MigratedChannels, newContactPair(c, receiver, route, nil))
+		pairs = append(pairs, newContactPair(c, receiver, route, nil))
 	}
 
-	return amConfig, nil
+	return pairs, nil
 }
 
-// migrateChannel migrates a single channel to unified alerting.
-func (om *orgMigration) migrateChannel(channel *legacymodels.AlertNotification) (*apimodels.PostableApiReceiver, *apimodels.Route, error) {
-	receiver, err := om.createReceiver(channel)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create receiver: %w", err)
+func getOrCreateNestedLegacyRoute(config *apimodels.PostableUserConfig) *apimodels.Route {
+	for _, r := range config.AlertmanagerConfig.Route.Routes {
+		if isNestedLegacyRoute(r) {
+			return r
+		}
 	}
+	nestedLegacyChannelRoute := createNestedLegacyRoute()
+	// Add new nested route as the first of the top-level routes.
+	config.AlertmanagerConfig.Route.Routes = append([]*apimodels.Route{nestedLegacyChannelRoute}, config.AlertmanagerConfig.Route.Routes...)
+	return nestedLegacyChannelRoute
+}
 
-	route, err := createRoute(channel, receiver.Name)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create route for receiver: %w", err)
-	}
-
-	return receiver, route, nil
+func isNestedLegacyRoute(r *apimodels.Route) bool {
+	return len(r.ObjectMatchers) == 1 && r.ObjectMatchers[0].Name == UseLegacyChannelsLabel
 }
 
 // validateAlertmanagerConfig validates the alertmanager configuration produced by the migration against the receivers.
-func (om *orgMigration) validateAlertmanagerConfig(config *apimodels.PostableUserConfig) error {
+func (om *OrgMigration) validateAlertmanagerConfig(config *apimodels.PostableUserConfig) error {
 	for _, r := range config.AlertmanagerConfig.Receivers {
 		for _, gr := range r.GrafanaManagedReceivers {
 			data, err := gr.Settings.MarshalJSON()
@@ -97,17 +98,8 @@ func (om *orgMigration) validateAlertmanagerConfig(config *apimodels.PostableUse
 	return nil
 }
 
-// getNotificationChannels returns all channels for this org.
-func (om *orgMigration) getNotificationChannels(ctx context.Context) ([]*legacymodels.AlertNotification, error) {
-	alertNotifications, err := om.migrationStore.GetNotificationChannels(ctx, om.orgID)
-	if err != nil {
-		return nil, err
-	}
-	return alertNotifications, nil
-}
-
 // createNotifier creates a PostableGrafanaReceiver from a legacy notification channel.
-func (om *orgMigration) createNotifier(c *legacymodels.AlertNotification) (*apimodels.PostableGrafanaReceiver, error) {
+func (om *OrgMigration) createNotifier(c *legacymodels.AlertNotification) (*apimodels.PostableGrafanaReceiver, error) {
 	settings, secureSettings, err := om.migrateSettingsToSecureSettings(c.Type, c.Settings, c.SecureSettings)
 	if err != nil {
 		return nil, err
@@ -129,7 +121,7 @@ func (om *orgMigration) createNotifier(c *legacymodels.AlertNotification) (*apim
 }
 
 // createReceiver creates a receiver from a legacy notification channel.
-func (om *orgMigration) createReceiver(channel *legacymodels.AlertNotification) (*apimodels.PostableApiReceiver, error) {
+func (om *OrgMigration) createReceiver(channel *legacymodels.AlertNotification) (*apimodels.PostableApiReceiver, error) {
 	if channel.Type == "hipchat" || channel.Type == "sensu" {
 		return nil, fmt.Errorf("%s is a discontinued", channel.Type)
 	}
@@ -184,6 +176,7 @@ func createDefaultRoute() (*apimodels.Route, *apimodels.Route) {
 }
 
 // createNestedLegacyRoute creates a nested route that will contain all the migrated channels.
+// This route is matched on the UseLegacyChannelsLabel and mostly exists to keep the migrated channels separate and organized.
 func createNestedLegacyRoute() *apimodels.Route {
 	mat, _ := labels.NewMatcher(labels.MatchEqual, UseLegacyChannelsLabel, "true")
 	return &apimodels.Route{
@@ -250,7 +243,7 @@ var secureKeysToMigrate = map[string][]string{
 // Some settings were migrated from settings to secure settings in between.
 // See https://grafana.com/docs/grafana/latest/installation/upgrading/#ensure-encryption-of-existing-alert-notification-channel-secrets.
 // migrateSettingsToSecureSettings takes care of that.
-func (om *orgMigration) migrateSettingsToSecureSettings(chanType string, settings *simplejson.Json, secureSettings SecureJsonData) (*simplejson.Json, map[string]string, error) {
+func (om *OrgMigration) migrateSettingsToSecureSettings(chanType string, settings *simplejson.Json, secureSettings SecureJsonData) (*simplejson.Json, map[string]string, error) {
 	keys := secureKeysToMigrate[chanType]
 	newSecureSettings := secureSettings.Decrypt()
 	cloneSettings := simplejson.New()
@@ -281,7 +274,7 @@ func (om *orgMigration) migrateSettingsToSecureSettings(chanType string, setting
 	return cloneSettings, newSecureSettings, nil
 }
 
-func (om *orgMigration) encryptSecureSettings(secureSettings map[string]string) error {
+func (om *OrgMigration) encryptSecureSettings(secureSettings map[string]string) error {
 	for key, value := range secureSettings {
 		encryptedData, err := om.encryptionService.Encrypt(context.Background(), []byte(value), secrets.WithoutScope())
 		if err != nil {

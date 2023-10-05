@@ -18,6 +18,9 @@ import (
 	"github.com/grafana/grafana/pkg/util"
 )
 
+// It is defined in pkg/expr/service.go as "DatasourceType"
+const expressionDatasourceUID = "__expr__"
+
 // dashAlertSettings is a type for the JSON that is in the settings field of
 // the alert table.
 type dashAlertSettings struct {

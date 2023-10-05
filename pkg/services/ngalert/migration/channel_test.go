@@ -162,7 +162,7 @@ func TestMigrateNotificationChannelSecureSettings(t *testing.T) {
 		require.NoError(t, err)
 		return string(raw)
 	}
-	decryptFn := func(data string, m *orgMigration) string {
+	decryptFn := func(data string, m *OrgMigration) string {
 		decoded, err := base64.StdEncoding.DecodeString(data)
 		require.NoError(t, err)
 		raw, err := m.encryptionService.Decrypt(context.Background(), decoded)
@@ -425,12 +425,11 @@ func TestSetupAlertmanagerConfig(t *testing.T) {
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
 			sqlStore := db.InitTestDB(t)
-			_, err := sqlStore.GetEngine().Insert(tt.channels)
-			require.NoError(t, err)
 
 			m := newTestOrgMigration(t, 1)
 			m.migrationStore = migrationStore.NewTestMigrationStore(t, sqlStore, nil)
-			amConfig, err := m.setupAlertmanagerConfigs(context.Background())
+			amConfig, _ := createBaseConfig()
+			_, err := m.migrateChannels(FromPostableUserConfig(amConfig), tt.channels)
 			if tt.expErr != nil {
 				require.Error(t, err)
 				require.EqualError(t, err, tt.expErr.Error())

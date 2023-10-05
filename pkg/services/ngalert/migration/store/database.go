@@ -21,18 +21,20 @@ import (
 	"github.com/grafana/grafana/pkg/services/datasources"
 	"github.com/grafana/grafana/pkg/services/folder"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
+	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/notifier"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/secrets"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/setting"
 )
 
 // Store is the database abstraction for migration persistence.
 type Store interface {
-	InsertAlertRules(ctx context.Context, orgID int64, rules []models.AlertRule, provisioned bool) error
+	InsertAlertRules(ctx context.Context, rules ...models.AlertRule) error
 
 	GetAlertmanagerConfig(ctx context.Context, orgID int64) (*apimodels.PostableUserConfig, error)
 	SaveAlertmanagerConfiguration(ctx context.Context, orgID int64, amConfig *apimodels.PostableUserConfig) error
@@ -62,8 +64,8 @@ type Store interface {
 
 	IsMigrated(ctx context.Context, orgID int64) (bool, error)
 	SetMigrated(ctx context.Context, orgID int64, migrated bool) error
-	GetOrgMigrationSummary(ctx context.Context, orgID int64) (*apimodels.OrgMigrationSummary, error)
-	SetOrgMigrationSummary(ctx context.Context, orgID int64, summary *apimodels.OrgMigrationSummary) error
+	GetOrgMigrationState(ctx context.Context, orgID int64) (*migmodels.OrgMigrationState, error)
+	SetOrgMigrationState(ctx context.Context, orgID int64, summary *migmodels.OrgMigrationState) error
 
 	RevertOrg(ctx context.Context, orgID int64) error
 	RevertAllOrgs(ctx context.Context) error
@@ -160,8 +162,8 @@ func (ms *migrationStore) SetMigrated(ctx context.Context, orgID int64, migrated
 	return kv.Set(ctx, migratedKey, strconv.FormatBool(migrated))
 }
 
-// GetOrgMigrationSummary returns a summary of a previous migration.
-func (ms *migrationStore) GetOrgMigrationSummary(ctx context.Context, orgID int64) (*apimodels.OrgMigrationSummary, error) {
+// GetOrgMigrationState returns a summary of a previous migration.
+func (ms *migrationStore) GetOrgMigrationState(ctx context.Context, orgID int64) (*migmodels.OrgMigrationState, error) {
 	kv := kvstore.WithNamespace(ms.kv, orgID, KVNamespace)
 	content, exists, err := kv.Get(ctx, createdFoldersKey)
 	if err != nil {
@@ -169,10 +171,10 @@ func (ms *migrationStore) GetOrgMigrationSummary(ctx context.Context, orgID int6
 	}
 
 	if !exists {
-		return &apimodels.OrgMigrationSummary{OrgID: orgID}, nil
+		return &migmodels.OrgMigrationState{OrgID: orgID}, nil
 	}
 
-	var summary apimodels.OrgMigrationSummary
+	var summary migmodels.OrgMigrationState
 	err = json.Unmarshal([]byte(content), &summary)
 	if err != nil {
 		return nil, err
@@ -181,8 +183,8 @@ func (ms *migrationStore) GetOrgMigrationSummary(ctx context.Context, orgID int6
 	return &summary, nil
 }
 
-// SetOrgMigrationSummary sets the summary of a previous migration.
-func (ms *migrationStore) SetOrgMigrationSummary(ctx context.Context, orgID int64, summary *apimodels.OrgMigrationSummary) error {
+// SetOrgMigrationState sets the summary of a previous migration.
+func (ms *migrationStore) SetOrgMigrationState(ctx context.Context, orgID int64, summary *migmodels.OrgMigrationState) error {
 	kv := kvstore.WithNamespace(ms.kv, orgID, KVNamespace)
 	raw, err := json.Marshal(summary)
 	if err != nil {
@@ -192,17 +194,27 @@ func (ms *migrationStore) SetOrgMigrationSummary(ctx context.Context, orgID int6
 	return kv.Set(ctx, createdFoldersKey, string(raw))
 }
 
-func (ms *migrationStore) InsertAlertRules(ctx context.Context, orgID int64, rules []models.AlertRule, provisioned bool) error {
-	_, err := ms.alertingStore.InsertAlertRules(ctx, rules)
-	if err != nil {
-		return err
-	}
-	if provisioned {
-		err = ms.UpsertProvenance(ctx, orgID, models.ProvenanceUpgrade, rules)
+func (ms *migrationStore) InsertAlertRules(ctx context.Context, rules ...models.AlertRule) error {
+	if ms.store.GetDialect().DriverName() == migrator.Postgres {
+		// Postgresql which will automatically rollback the whole transaction on constraint violation.
+		// So, for postgresql, insertions will execute in a subtransaction.
+		err := ms.store.InTransaction(ctx, func(subCtx context.Context) error {
+			_, err := ms.alertingStore.InsertAlertRules(subCtx, rules)
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	} else {
+		_, err := ms.alertingStore.InsertAlertRules(ctx, rules)
 		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -350,7 +362,7 @@ func (ms *migrationStore) RevertAllOrgs(ctx context.Context) error {
 // DeleteMigratedFolders deletes all folders created by the previous migration run for the given org. This includes all folder permissions.
 // If the folder is not empty of all descendants the operation will fail and return an error.
 func (ms *migrationStore) DeleteMigratedFolders(ctx context.Context, orgID int64) error {
-	summary, err := ms.GetOrgMigrationSummary(ctx, orgID)
+	summary, err := ms.GetOrgMigrationState(ctx, orgID)
 	if err != nil {
 		return err
 	}
@@ -430,12 +442,23 @@ func (ms *migrationStore) GetNotificationChannels(ctx context.Context, orgID int
 	})
 }
 
+var ErrNotFound = errors.New("not found")
+
 // GetNotificationChannel returns a single channel for this org by id.
 func (ms *migrationStore) GetNotificationChannel(ctx context.Context, orgID int64, id int64) (*legacymodels.AlertNotification, error) {
-	return ms.legacyAlertNotificationService.GetAlertNotifications(ctx, &legacymodels.GetAlertNotificationsQuery{
+	channel, err := ms.legacyAlertNotificationService.GetAlertNotifications(ctx, &legacymodels.GetAlertNotificationsQuery{
 		OrgID: orgID,
 		ID:    id,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if channel == nil {
+		// GetAlertNotifications returns nil and no error if the channel is not found.
+		return nil, ErrNotFound
+	}
+
+	return channel, nil
 }
 
 // GetDashboardAlert loads a single legacy dashboard alerts for the given org and alert id.
@@ -447,7 +470,7 @@ func (ms *migrationStore) GetDashboardAlert(ctx context.Context, orgID int64, da
 			return err
 		}
 		if !has {
-			return fmt.Errorf("alert not found")
+			return ErrNotFound
 		}
 		return nil
 	})
@@ -478,7 +501,7 @@ func (ms *migrationStore) GetOrgDashboardAlerts(ctx context.Context, orgID int64
 		return sess.SQL("select * from alert WHERE org_id = ?", orgID).Find(&dashAlerts)
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("could not load alerts: %w", err)
+		return nil, 0, err
 	}
 
 	mappedAlerts := make(map[int64][]*legacymodels.Alert)

@@ -2988,16 +2988,22 @@
         "tags": [
           "upgrade"
         ],
-        "summary": "Upgrade all legacy notification channels for current organization.",
+        "summary": "Upgrade all legacy notification channels for the current organization.",
         "operationId": "RoutePostUpgradeAllChannels",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, legacy alert and notification channel upgrades from previous runs will be skipped. Otherwise, they will be replaced.",
+            "name": "SkipExisting",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "ContactPair",
+            "description": "OrgMigrationSummary",
             "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ContactPair"
-              }
+              "$ref": "#/definitions/OrgMigrationSummary"
             }
           }
         }
@@ -3011,9 +3017,16 @@
         "tags": [
           "upgrade"
         ],
-        "summary": "Upgrade a single legacy notification channel for current organization.",
+        "summary": "Upgrade a single legacy notification channel for the current organization.",
         "operationId": "RoutePostUpgradeChannel",
         "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, legacy alert and notification channel upgrades from previous runs will be skipped. Otherwise, they will be replaced.",
+            "name": "SkipExisting",
+            "in": "query"
+          },
           {
             "type": "string",
             "description": "Channel ID of legacy notification channel.",
@@ -3024,9 +3037,29 @@
         ],
         "responses": {
           "200": {
-            "description": "ContactPair",
+            "description": "OrgMigrationSummary",
             "schema": {
-              "$ref": "#/definitions/ContactPair"
+              "$ref": "#/definitions/OrgMigrationSummary"
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/upgrade/dashboards": {
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "upgrade"
+        ],
+        "summary": "Upgrade all legacy dashboard alerts for the current organization.",
+        "operationId": "RoutePostUpgradeAllDashboards",
+        "responses": {
+          "200": {
+            "description": "OrgMigrationSummary",
+            "schema": {
+              "$ref": "#/definitions/OrgMigrationSummary"
             }
           }
         }
@@ -3040,9 +3073,16 @@
         "tags": [
           "upgrade"
         ],
-        "summary": "Upgrade all legacy dashboard alerts on a dashboard.",
+        "summary": "Upgrade all legacy dashboard alerts on a dashboard for the current organization.",
         "operationId": "RoutePostUpgradeDashboard",
         "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, legacy alert and notification channel upgrades from previous runs will be skipped. Otherwise, they will be replaced.",
+            "name": "SkipExisting",
+            "in": "query"
+          },
           {
             "type": "string",
             "description": "Dashboard ID of dashboard alert.",
@@ -3053,9 +3093,9 @@
         ],
         "responses": {
           "200": {
-            "description": "DashboardUpgrade",
+            "description": "OrgMigrationSummary",
             "schema": {
-              "$ref": "#/definitions/DashboardUpgrade"
+              "$ref": "#/definitions/OrgMigrationSummary"
             }
           }
         }
@@ -3069,7 +3109,7 @@
         "tags": [
           "upgrade"
         ],
-        "summary": "Upgrade single legacy dashboard alert.",
+        "summary": "Upgrade single legacy dashboard alert for the current organization.",
         "operationId": "RoutePostUpgradeAlert",
         "parameters": [
           {
@@ -3089,9 +3129,9 @@
         ],
         "responses": {
           "200": {
-            "description": "DashboardUpgrade",
+            "description": "OrgMigrationSummary",
             "schema": {
-              "$ref": "#/definitions/DashboardUpgrade"
+              "$ref": "#/definitions/OrgMigrationSummary"
             }
           }
         }
@@ -3105,13 +3145,13 @@
         "tags": [
           "upgrade"
         ],
-        "summary": "Get existing alerting upgrade for current organization.",
+        "summary": "Get existing alerting upgrade for the current organization.",
         "operationId": "RouteGetOrgUpgrade",
         "responses": {
           "200": {
-            "description": "OrgMigrationSummary",
+            "description": "OrgMigrationState",
             "schema": {
-              "$ref": "#/definitions/OrgMigrationSummary"
+              "$ref": "#/definitions/OrgMigrationState"
             }
           }
         }
@@ -3123,8 +3163,17 @@
         "tags": [
           "upgrade"
         ],
-        "summary": "Upgrade all legacy alerts for current organization.",
+        "summary": "Upgrade all legacy alerts for the current organization.",
         "operationId": "RoutePostUpgradeOrg",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, legacy alert and notification channel upgrades from previous runs will be skipped. Otherwise, they will be replaced.",
+            "name": "SkipExisting",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
             "description": "OrgMigrationSummary",
@@ -3141,7 +3190,7 @@
         "tags": [
           "upgrade"
         ],
-        "summary": "Delete existing alerting upgrade for current organization.",
+        "summary": "Delete existing alerting upgrade for the current organization.",
         "operationId": "RouteDeleteOrgUpgrade",
         "responses": {
           "200": {
@@ -3499,9 +3548,6 @@
           "type": "string"
         }
       }
-    },
-    "AlertStateType": {
-      "type": "string"
     },
     "AlertingFileExport": {
       "type": "object",
@@ -5509,15 +5555,9 @@
         }
       }
     },
-    "OrgMigrationSummary": {
+    "OrgMigrationState": {
       "type": "object",
       "properties": {
-        "createdFolders": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "errors": {
           "type": "array",
           "items": {
@@ -5537,6 +5577,26 @@
           }
         },
         "orgId": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "OrgMigrationSummary": {
+      "type": "object",
+      "properties": {
+        "hasErrors": {
+          "type": "boolean"
+        },
+        "newAlerts": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "newChannels": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "newDashboards": {
           "type": "integer",
           "format": "int64"
         }
@@ -7512,6 +7572,7 @@
       }
     },
     "alertGroup": {
+      "description": "AlertGroup alert group",
       "type": "object",
       "required": [
         "alerts",
@@ -7536,7 +7597,6 @@
       "$ref": "#/definitions/alertGroup"
     },
     "alertGroups": {
-      "description": "AlertGroups alert groups",
       "type": "array",
       "items": {
         "$ref": "#/definitions/alertGroup"
@@ -7642,7 +7702,6 @@
       }
     },
     "gettableAlert": {
-      "description": "GettableAlert gettable alert",
       "type": "object",
       "required": [
         "labels",
@@ -7699,7 +7758,6 @@
       "$ref": "#/definitions/gettableAlert"
     },
     "gettableAlerts": {
-      "description": "GettableAlerts gettable alerts",
       "type": "array",
       "items": {
         "$ref": "#/definitions/gettableAlert"
@@ -7707,6 +7765,7 @@
       "$ref": "#/definitions/gettableAlerts"
     },
     "gettableSilence": {
+      "description": "GettableSilence gettable silence",
       "type": "object",
       "required": [
         "comment",
@@ -7763,6 +7822,7 @@
       "$ref": "#/definitions/gettableSilences"
     },
     "integration": {
+      "description": "Integration integration",
       "type": "object",
       "required": [
         "name",

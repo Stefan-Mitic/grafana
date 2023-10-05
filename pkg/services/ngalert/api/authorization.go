@@ -62,6 +62,8 @@ func (api *API) authorize(method, path string) web.Handler {
 		return middleware.ReqOrgAdmin
 	case http.MethodDelete + "/api/v1/upgrade/org":
 		return middleware.ReqOrgAdmin
+	case http.MethodPost + "/api/v1/upgrade/dashboards":
+		return middleware.ReqOrgAdmin
 	case http.MethodPost + "/api/v1/upgrade/dashboards/{DashboardID}":
 		return middleware.ReqOrgAdmin
 	case http.MethodPost + "/api/v1/upgrade/dashboards/{DashboardID}/panels/{PanelID}":
