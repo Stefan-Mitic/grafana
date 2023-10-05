@@ -10,8 +10,8 @@ import (
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
 
-// createdFoldersKey is a vendored migration.createdFoldersKey.
-var createdFoldersKey = "createdFolders"
+// stateKey is a vendored migrationStore.stateKey.
+var stateKey = "stateKey"
 
 // CreatedFoldersMigration moves the record of created folders during legacy migration from Dashboard created_by=-8
 // to the kvstore. If there are no dashboards with created_by=-.8, then nothing needs to be done.
@@ -42,29 +42,42 @@ func (c createdFoldersToKVStore) Exec(sess *xorm.Session, mg *migrator.Migrator)
 		return nil
 	}
 
-	orgFolderUids := make(map[int64][]string)
+	type orgMigrationState struct {
+		OrgID          int64    `json:"orgId"`
+		CreatedFolders []string `json:"createdFolders"`
+	}
+	states := make(map[int64]*orgMigrationState)
 	for _, r := range results {
-		orgFolderUids[r.OrgID] = append(orgFolderUids[r.OrgID], r.UID)
+		if _, ok := states[r.OrgID]; !ok {
+			states[r.OrgID] = &orgMigrationState{
+				OrgID:          r.OrgID,
+				CreatedFolders: []string{},
+			}
+		}
+		states[r.OrgID].CreatedFolders = append(states[r.OrgID].CreatedFolders, r.UID)
 	}
 
-	raw, err := json.Marshal(orgFolderUids)
-	if err != nil {
-		return err
-	}
-
-	var anyOrg int64 = 0
 	now := time.Now()
-	entry := kvStoreV1Entry{
-		OrgID:     &anyOrg,
-		Namespace: &KVNamespace,
-		Key:       &createdFoldersKey,
-		Value:     string(raw),
-		Created:   now,
-		Updated:   now,
+	for _, state := range states {
+		raw, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+
+		orgId := state.OrgID
+		entry := kvStoreV1Entry{
+			OrgID:     &orgId,
+			Namespace: &KVNamespace,
+			Key:       &stateKey,
+			Value:     string(raw),
+			Created:   now,
+			Updated:   now,
+		}
+		if _, errCreate := sess.Table("kv_store").Insert(&entry); errCreate != nil {
+			mg.Logger.Error("failed to insert record of created folders to kvstore", "err", errCreate)
+			return fmt.Errorf("failed to insert record of created folders to kvstore: %w", errCreate)
+		}
 	}
-	if _, errCreate := sess.Table("kv_store").Insert(&entry); errCreate != nil {
-		mg.Logger.Error("failed to insert record of created folders to kvstore", "err", errCreate)
-		return fmt.Errorf("failed to insert record of created folders to kvstore: %w", errCreate)
-	}
+
 	return nil
 }
