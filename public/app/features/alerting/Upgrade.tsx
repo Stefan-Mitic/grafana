@@ -238,6 +238,7 @@ function getActiveTabFromUrl(queryParams: UrlQueryMap): QueryParamValues {
 }
 
 const CTAElement = () => {
+  const styles = useStyles2(getContentBoxStyles);
   const { useUpgradeOrgMutation } = upgradeApi;
   const [startUpgrade, {isLoading}] = useUpgradeOrgMutation();
 
@@ -252,23 +253,7 @@ const CTAElement = () => {
   const footer = (
     <>
       <span key="proTipFooter">
-        <p>Note: {"Previewing the upgrade process will not affect your existing legacy alerts."}</p>
-        <p>{"For more information, please refer to the "}
-          <TextLink
-            external
-            href={'https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/'}>
-            Grafana Alerting Migration Guide
-          </TextLink>
-        </p>
-
-        {/* <div className={css({'align-items': 'left'})}>
-        <p>{"This process will automatically copy and convert your existing legacy alerts to Grafana Alerting, however Grafana Alerting will not be enabled until you modify the Grafana configuration." +
-          "This means the newly created Alerts, Contact Points, and Notification Policies will be available to preview or even modify, but will not run or send any notifications."}</p>
-        <p>{"The upgrade can be performed as many times as you wish in case new legacy alerts have been created since the previous run. " +
-          "Note that when refreshing the upgrade will lose, any manual changes to Grafana Alerting resources will be lost."}</p>
-        <p><Icon name="exclamation-triangle" />{' '} Note: {"This process might create new folders if doing so is necessary to retain correct permissions for new alerts."}</p>
-        <br/>
-        </div> */}
+        <p>Note: {"Previewing the upgrade process will not affect your existing legacy alerts and can be stopped at any time."}</p>
       </span>
     </>
   );
@@ -285,22 +270,143 @@ const CTAElement = () => {
             className={""}
             data-testid={selectors.components.CallToActionCard.buttonV2("Preview upgrade")}
           >
-            {"Start Upgrade"}
+            {"Preview upgrade"}
           </Button>
         </Stack>
       </Stack>
     </div>
   );
 
-  const ctaStyle = css`
-    text-align: center;
-  `;
+  return <div className={styles.grid}>
+    <ContentBox className={styles.processBlock}>
+      <h3 className={styles.header}>How it works</h3>
+      <Stack direction="column" alignItems="space-between">
+      <div className={styles.list}>
+            <h4>Automatic Upgrade</h4>
+            <div className={styles.step}>
+              <p>The upgrade process seamlessly transfers your existing legacy alert rules and notification channels to the new Grafana Alerting system. This means your alerting configurations are preserved during the transition.</p>
+            </div>
+            <h4>Preview and Modification</h4>
+            <div className={styles.step}>
+              <p>Alert Rules, Contact Points, and Notification Policies generated during the upgrade are available for your review and potential adjustments. However, please note that they won't actively trigger alerts or send notifications at this stage.</p>
+            </div>
+            <h4>Limitations on Real-Time Updates</h4>
+            <div className={styles.step}>
+              <p>Any changes made to your configurations after initiating the upgrade won't be immediately reflected in the summary table. You have the flexibility to re-upgrade specific resources like dashboards, alert rules, and notification channels at any time.</p>
+            </div>
+            <h4>Cancellation and Restart</h4>
+            <div className={styles.step}>
+              <p>If necessary, you can cancel and restart the upgrade process. However, it's important to be aware that canceling the upgrade will result in the removal of all Grafana Alerting resources, including any manual modifications you've made during the process.</p>
+            </div>
+            <h4>Completing the Upgrade</h4>
+            <div className={styles.step}>
+              <p>To enable Grafana Alerting, you'll need to modify the Grafana configuration and restart. Until this step is completed, Grafana Alerting will remain inactive.</p>
+            </div>
+        </div>
+      </Stack>
+    </ContentBox>
+    <ContentBox className={styles.getStartedBlock}>
+      <h3 className={styles.header}>Get started</h3>
+      <Stack direction="column" alignItems="space-between">
+        <div className={styles.list}>
+            <h4>Step 1: Preview the Upgrade</h4>
+            <div className={styles.step}>
+              <p>Start the upgrade process by clicking on "Preview upgrade." This action will display a summary table showing how your existing alert rules and notification channels will be mapped to resources in the new Grafana Alerting system.</p>
+            </div>
+            <h4>Step 2: Investigate and Resolve Errors</h4>
+            <div className={styles.step}>
+              <p>Review the previewed upgrade carefully. Alert rules or notification channels that couldn't be automatically upgraded will be marked as errors. You have two options to address these errors:</p>
+              <ul className={styles.list}>
+                  <li>Fix the issues on the legacy side: If possible, resolve the problems within your legacy alerting setup, and then attempt the upgrade again.</li>
+                  <li>Manually create new resources: If fixing legacy issues isn't feasible, manually create new alert rules, notification policies, or contact points in the new Grafana Alerting system to replace the problematic ones.</li>
+              </ul>
+            </div>
+            <h4>Step 3: Update Your As-Code Setup (Optional)</h4>
+            <div className={styles.step}>
+              <p>In the new Grafana Alerting, Legacy Alerting methods of provisioning will no longer work. If you use provisioning to manage alert rules and notification channels, you can export the upgraded versions to generate Grafana Alerting-compatible provisioning files. This can all be done before completeing the upgrade process.</p>
+            </div>
+            <h4>Step 4: Perform the Upgrade to Grafana Alerting</h4>
+            <div className={styles.step}>
+              <p>Once you are satisfied with the state of your Grafana Alerting setup, it's time to proceed with the upgrade:</p>
+              <ul className={styles.list}>
+                  <li>Contact your Grafana server administrator to restart Grafana with the [unified_alerting] section enabled in your configuration.</li>
+                  <li>During this process, all organizations that have undergone the above upgrade process will continue to use their configured setup.</li>
+                  <li>Any organization that has not yet started the upgrade process will be automatically upgraded as part of this restart.</li>
+                  <li>Note: If the automatic upgrade fails for any reason, Grafana will not start, so it's safer to address any issues before initiating this step.</li>
+              </ul>
+            </div>
+        </div>
+        <Stack direction={'row'} alignItems={'center'} gap={0.5}>
+          <Text color={'secondary'}>For more information, please refer to the</Text>
+          <TextLink
+            external
+            href={'https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/'}>
+            Grafana Alerting Migration Guide
+          </TextLink>
+        </Stack>
+      </Stack>
+    </ContentBox>
+    <ContentBox className={styles.ctaBlock}>
+      <CallToActionCard className={styles.ctaStyle}
+                        message={"Start the upgrade to the new Grafana Alerting."}
+                        footer={footer}
+                        callToActionElement={cta}/>
+    </ContentBox>
 
-  return <CallToActionCard className={ctaStyle}
-                           message={"Start the upgrade to the new Grafana Alerting."}
-                           footer={footer}
-                           callToActionElement={cta}/>;
+  </div>
 }
+
+function ContentBox({ children, className }: React.PropsWithChildren<{ className?: string }>) {
+  const styles = useStyles2(getContentBoxStyles);
+
+  return <div className={cx(styles.box, className)}>{children}</div>;
+}
+
+const getContentBoxStyles = (theme: GrafanaTheme2) => {
+  const color = theme.colors['warning'];
+  return {
+          box: css`
+            padding: ${theme.spacing(2)};
+            background-color: ${theme.colors.background.secondary};
+            border-radius: ${theme.shape.radius.default};
+          `,
+          warningIcon: css`
+            color: ${color.text};
+          `,
+          grid: css`
+            display: grid;
+            grid-template-rows: min-content auto auto;
+            grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+            gap: ${theme.spacing(2)};
+          `,
+          list: css`
+            margin: ${theme.spacing(0, 2)};
+            & > li {
+              margin-bottom: ${theme.spacing(1)};
+            }
+          `,
+          ctaStyle: css`
+             text-align: center;
+          `,
+          processBlock: css`
+            grid-column: 1 / span 2;
+            justify-content: space-between;
+          `,
+          getStartedBlock: css`
+            grid-column: 3 / span 3;
+            justify-content: space-between;
+          `,
+          ctaBlock: css`
+            grid-column: 1 / span 5;
+          `,
+          header: css`
+            margin-bottom: ${theme.spacing(2)};
+          `,
+          step: css`
+            padding-left: ${theme.spacing(2)};
+          `,
+      };
+};
 
 const AlertTabContentWrapper = () => {
   const columns = useAlertColumns();
