@@ -136,6 +136,11 @@ func (s *ServiceImpl) GetNavTree(c *contextmodel.ReqContext, prefs *pref.Prefere
 		if legacyAlertSection := s.buildLegacyAlertNavLinks(c); legacyAlertSection != nil {
 			treeRoot.AddSection(legacyAlertSection)
 		}
+		if s.cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUA) && !uaIsDisabledForOrg {
+			if alertingSection := s.buildAlertNavLinks(c); alertingSection != nil {
+				treeRoot.AddSection(alertingSection)
+			}
+		}
 	} else if uaVisibleForOrg {
 		if alertingSection := s.buildAlertNavLinks(c); alertingSection != nil {
 			treeRoot.AddSection(alertingSection)

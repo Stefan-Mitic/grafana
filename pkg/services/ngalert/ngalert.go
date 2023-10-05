@@ -331,7 +331,8 @@ func (ng *AlertNG) Run(ctx context.Context) error {
 		return ng.AlertsRouter.Run(subCtx)
 	})
 
-	if ng.Cfg.UnifiedAlerting.ExecuteAlerts {
+	// We explicitly check that UA is enabled here in case FlagAlertingPreviewUA is enabled but UA is disabled.
+	if ng.Cfg.UnifiedAlerting.ExecuteAlerts && ng.Cfg.UnifiedAlerting.IsEnabled() {
 		children.Go(func() error {
 			return ng.schedule.Run(subCtx)
 		})
@@ -344,6 +345,12 @@ func (ng *AlertNG) IsDisabled() bool {
 	if ng.Cfg == nil {
 		return true
 	}
+
+	// Feature flag will enable UA so that routes are registered but keep the scheduler disabled.
+	if ng.Cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUA) {
+		return false
+	}
+
 	return !ng.Cfg.UnifiedAlerting.IsEnabled()
 }
 

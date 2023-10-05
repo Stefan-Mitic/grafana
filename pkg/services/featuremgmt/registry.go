@@ -838,5 +838,12 @@ var (
 			Stage:        FeatureStageExperimental,
 			Owner:        grafanaAppPlatformSquad,
 		},
+		{
+			Name:         "alertingPreviewUA",
+			Description:  "Show Unified Alerting nav tree and pages in legacy alerting",
+			FrontendOnly: false,
+			Stage:        FeatureStageExperimental,
+			Owner:        grafanaAlertingSquad,
+		},
 	}
 )

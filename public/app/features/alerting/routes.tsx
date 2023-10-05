@@ -286,9 +286,14 @@ export function getAlertingRoutes(cfg = config): RouteDescriptor[] {
   if (cfg.unifiedAlertingEnabled) {
     return unifiedRoutes;
   } else if (cfg.alertingEnabled) {
+    if (config.featureToggles.alertingPreviewUA) {
+      // If preview is enabled, return both legacy and unified routes.
+      return [...legacyRoutes, ...unifiedRoutes];
+    }
     return legacyRoutes;
   }
 
+  // Disable all alerting routes.
   const uniquePaths = uniq([...legacyRoutes, ...unifiedRoutes].map((route) => route.path));
   return uniquePaths.map((path) => ({
     path,
