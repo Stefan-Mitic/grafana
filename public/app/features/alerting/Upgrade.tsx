@@ -1,8 +1,9 @@
 import { css, cx } from '@emotion/css';
-import { uniq } from 'lodash';
+import uFuzzy from '@leeoniya/ufuzzy';
+import {debounce, uniq} from 'lodash';
 import pluralize from 'pluralize';
-import React, { useMemo, useState } from 'react';
-import { useLocalStorage } from 'react-use';
+import React, { useEffect, useMemo, useState } from 'react';
+import {useLocalStorage} from 'react-use';
 
 import { GrafanaTheme2, UrlQueryMap } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
@@ -13,12 +14,14 @@ import {
   Button,
   CallToActionCard,
   ConfirmModal,
+  FilterInput,
   HorizontalGroup,
   Icon,
   Link,
   Tab,
   TabContent,
-  TabsBar, TagList,
+  TabsBar,
+  TagList,
   Text,
   Tooltip,
   useStyles2
@@ -27,6 +30,7 @@ import { Page } from 'app/core/components/Page/Page';
 
 import {useQueryParams} from '../../core/hooks/useQueryParams';
 import {MatcherOperator} from '../../plugins/datasource/alertmanager/types';
+import {getSearchPlaceholder} from '../search/tempI18nPhrases';
 
 import {AlertPair, ContactPair, DashboardUpgrade, upgradeApi} from "./unified/api/upgradeApi";
 import {DynamicTable, DynamicTableColumnProps, DynamicTableItemProps} from "./unified/components/DynamicTable";
@@ -43,10 +47,7 @@ import {
 import {createUrl} from "./unified/utils/url";
 
 export const Upgrade = () => {
-  // const dispatch = useDispatch();
   const styles = useStyles2(getStyles);
-  // const [summary, setSummary] = useState<OrgMigrationSummary>();
-  // const [trigger, { data, isError: isPreviewError, isLoading }] = usePreviewTemplateMutation();
   const { useCancelOrgUpgradeMutation, useGetOrgUpgradeSummaryQuery, useUpgradeOrgMutation } = upgradeApi;
   const {
     currentData: summary,
@@ -78,104 +79,114 @@ export const Upgrade = () => {
 
   const alertCount = (summary?.migratedDashboards ?? []).reduce((acc, cur) => acc + (cur?.migratedAlerts?.length ?? 0), 0);
   const contactCount = summary?.migratedChannels?.length ?? 0;
-  // const alertSuffix = useMemo(() => {
-  //   // const errors = summary?.errors ?? []
-  //   // const joinedError = errors.join('\n');
-  //   //
-  //   // return errors.length > 0 ? <Badge color="red" key="errors" text={`${errors.length} errors`} tooltip={joinedError} /> : <></>
-  //   const errors = (summary?.migratedAlerts ?? []).reduce((acc, cur) => cur.error ? ++acc : acc, 0);
-  //   return errors > 0 ? <Badge color="red" key="errors" text={`${errors} errors`}/> : <></>
-  // }, [summary]);
-  // const contactSuffix = useMemo(() => {
-  //   const errors = (summary?.migratedChannels ?? []).reduce((acc, cur) => cur.error ? ++acc : acc, 0);
-  //   return errors > 0 ? <Badge color="red" key="errors" text={`${errors} errors`}/> : <></>
-  // }, [summary]);
 
   const errors = summary?.errors ?? [];
   const hasData = alertCount > 0 || contactCount > 0 || errors.length > 0
-  // const error = [...errors].join('\n');
 
-  const pageContents = () => {
-    if (isFetchError) {
-      return <Alert severity="error" title="Error loading Grafana Alerting upgrade information">
-        {fetchError instanceof Error ? fetchError.message : 'Unknown error.'}
-      </Alert>;
-    }
-    if (!hasData) {
-      return CTAElement({ handleUpgradeClick: upgradeAlerting });
-    }
-    return (
-      <>
-        <ErrorSummary errors={errors}/>
-        <TabsBar>
-          <Tab
-            label={"Upgraded Alerts"}
-            active={activeTab === ActiveTab.Alerts}
-            counter={alertCount}
-            icon={"bell"}
-            onChangeTab={() => {
-              setActiveTab(ActiveTab.Alerts);
-              setQueryParams({ tab: ActiveTab.Alerts });
-            }}
-          />
-          <Tab
-            label={"Upgraded Contacts"}
-            active={activeTab === ActiveTab.Contacts}
-            counter={contactCount}
-            icon={"at"}
-            onChangeTab={() => {
-              setActiveTab(ActiveTab.Contacts);
-              setQueryParams({ tab: ActiveTab.Contacts });
-            }}
-          />
-          <HorizontalGroup height="auto" justify="flex-end">
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => setShowConfirmStartOver(true)}
-              icon={"trash-alt"}
-              className={""}
-              data-testid={selectors.components.CallToActionCard.buttonV2("Restart Upgrade")}
-            >
-              {"Restart Upgrade"}
-            </Button>
-            {showConfirmStartOver && (
-              <ConfirmModal
-                isOpen={true}
-                title="Restart Upgrade Process"
-                body={
-                  <Stack direction="column" gap={0.5}>
-                    <Text color="primary">Are you sure you want to restart your upgrade progress?</Text>
-                    <Text color="secondary" variant="bodySmall">All Grafana Alerting resources will be deleted. This includes: alert rules, contact points, notification policies, silences, and mute timings.</Text>
-                    <Text color="secondary" variant="bodySmall" weight="bold">No legacy alerts or notification channels will be affected.</Text>
-                  </Stack>
-                }
-                confirmText="Yes, delete Grafana Alerting resources"
-                onConfirm={cancelUpgrade}
-                onDismiss={() => setShowConfirmStartOver(false)}
-              />
-            )}
-          </HorizontalGroup>
-        </TabsBar>
-        <TabContent className={styles.tabContent}>
-          <>
-            {activeTab === ActiveTab.Alerts && (
-              <UpgradedAlerts migratedDashboards={summary?.migratedDashboards ?? []}/>
-            )}
-            {activeTab === ActiveTab.Contacts && (
-              <ChannelTable migratedChannels={summary?.migratedChannels ?? []}/>
-            )}
-          </>
+  const channelColumns= useChannelColumns();
+  const alertColumns = useAlertColumns();
 
-        </TabContent>
-      </>
-    )
-  }
+  const alertTab = useMemo(() => {
+    return <UpgradeTabContent<DashboardUpgrade>
+      rows={summary?.migratedDashboards ?? []}
+      filterParam={"alertFilter"}
+      searchSpaceMap={(dashUpgrade) => `${dashUpgrade.folderName} ${dashUpgrade.dashboardName} ${dashUpgrade.newFolderName}`}
+      emptyMessage={"No alert upgrades found."}
+      searchPlaceholder={getSearchPlaceholder(false)}
+      columns={alertColumns}
+      isExpandable={true}
+      renderExpandedContent={({data: dashUpgrade}) => <AlertTable dashboardUid={dashUpgrade.dashboardUid ?? ''}
+                                                                  pairs={dashUpgrade?.migratedAlerts ?? []}
+                                                                  showGuidelines={true}/>}
+    />
+  }, [summary?.migratedDashboards, alertColumns]);
+  const channelTab = useMemo(() => {
+    return <UpgradeTabContent<ContactPair>
+      rows={summary?.migratedChannels ?? []}
+      filterParam={"contactFilter"}
+      searchSpaceMap={(pair) => `${pair.legacyChannel?.name} ${pair.contactPoint?.name} ${pair.legacyChannel?.type}`}
+      emptyMessage={"No channel upgrades found."}
+      searchPlaceholder={"Search for channel and contact point names"}
+      columns={channelColumns}
+    />
+  }, [summary?.migratedChannels, channelColumns]);
 
   return (
       <Page navId="alerting-upgrade">
           <Page.Contents isLoading={isLoading}>
-            {pageContents()}
+            {isFetchError && (
+              <Alert severity="error" title="Error loading Grafana Alerting upgrade information">
+                {fetchError instanceof Error ? fetchError.message : 'Unknown error.'}
+              </Alert>
+            )}
+            {!isFetchError && !hasData && (
+              CTAElement({ handleUpgradeClick: upgradeAlerting })
+            )}
+            {!isFetchError && hasData && (
+              <>
+                <ErrorSummary errors={errors}/>
+                <TabsBar>
+                  <Tab
+                    label={"Upgraded Alerts"}
+                    active={activeTab === ActiveTab.Alerts}
+                    counter={alertCount}
+                    icon={"bell"}
+                    onChangeTab={() => {
+                      setActiveTab(ActiveTab.Alerts);
+                      setQueryParams({ tab: ActiveTab.Alerts });
+                    }}
+                  />
+                  <Tab
+                    label={"Upgraded Contacts"}
+                    active={activeTab === ActiveTab.Contacts}
+                    counter={contactCount}
+                    icon={"at"}
+                    onChangeTab={() => {
+                      setActiveTab(ActiveTab.Contacts);
+                      setQueryParams({ tab: ActiveTab.Contacts });
+                    }}
+                  />
+                  <HorizontalGroup height="auto" justify="flex-end">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setShowConfirmStartOver(true)}
+                      icon={"trash-alt"}
+                      className={""}
+                    >
+                      {"Cancel Upgrade"}
+                    </Button>
+                    {showConfirmStartOver && (
+                      <ConfirmModal
+                        isOpen={true}
+                        title="Cancel Upgrade Process"
+                        body={
+                          <Stack direction="column" gap={0.5}>
+                            <Text color="primary">Are you sure you want to cancel your upgrade?</Text>
+                            <Text color="secondary" variant="bodySmall">All Grafana Alerting resources will be deleted. This includes: alert rules, contact points, notification policies, silences, and mute timings.</Text>
+                            <Text color="secondary" variant="bodySmall" weight="bold">No legacy alerts or notification channels will be affected.</Text>
+                          </Stack>
+                        }
+                        confirmText="Yes, delete Grafana Alerting resources"
+                        onConfirm={cancelUpgrade}
+                        onDismiss={() => setShowConfirmStartOver(false)}
+                      />
+                    )}
+                  </HorizontalGroup>
+                </TabsBar>
+                <TabContent className={styles.tabContent}>
+                  <>
+                    {activeTab === ActiveTab.Alerts && (
+                      alertTab
+                    )}
+                    {activeTab === ActiveTab.Contacts && (
+                      channelTab
+                    )}
+                  </>
+
+                </TabContent>
+              </>
+            )}
           </Page.Contents>
       </Page>
   );
@@ -264,34 +275,89 @@ const CTAElement = (props: CTAElementProps) => {
                            callToActionElement={cta}/>;
 }
 
-interface ChannelTableProps {
-  migratedChannels?: ContactPair[];
-  showGuidelines?: boolean;
-  className?: string;
-  emptyMessage?: string;
+interface UpgradeTabContentProps<T extends object> {
+  rows?: T[];
+  filterParam: string;
+  searchSpaceMap: (row: T) => string;
+  columns: Array<DynamicTableColumnProps<T>>
+  isExpandable?: boolean;
+  renderExpandedContent?: (item: DynamicTableItemProps<T>) => React.ReactNode;
+  emptyMessage: string;
+  searchPlaceholder: string;
 }
 
-// @ts-ignore
-const ChannelTable = ({
-                         migratedChannels = [],
-                         className,
-                         showGuidelines = false,
-                         emptyMessage = 'No channel upgrades found.',
-                       }: ChannelTableProps) => {
+const UpgradeTabContent = <T extends object,>({
+                                 rows = [],
+                                 filterParam,
+                                 searchSpaceMap,
+                                 columns,
+                                 isExpandable=false,
+                                 renderExpandedContent,
+                                 emptyMessage,
+                                 searchPlaceholder,
+                      }: UpgradeTabContentProps<T>) => {
   const styles = useStyles2(getStyles);
 
-  const wrapperClass = cx(styles.wrapper, className, { [styles.wrapperMargin]: showGuidelines });
+  const [queryParams, setQueryParams] = useQueryParams();
+  const queryParamFilter = queryParams[filterParam] === undefined ? undefined : String(queryParams[filterParam]);
+  const [filter, setFilter] = useState(queryParamFilter);
 
-  const items = useMemo((): Array<DynamicTableItemProps<ContactPair>> => {
-    return migratedChannels.map((contactPair, Idx) => {
+  const filterFn = useMemo(() => {
+    return createfilterByMapping<T>(searchSpaceMap);
+  }, [searchSpaceMap]);
+
+  const items = useMemo((): Array<DynamicTableItemProps<T>> => {
+    return filterFn(rows, filter).map((row, Idx) => {
       return {
-        id: `${contactPair?.legacyChannel?.uid}-${Idx}`,
-        data: contactPair,
+        id: `${searchSpaceMap(row)} - ${Idx}`,
+        data: row,
       };
     });
-  }, [migratedChannels]);
+  }, [searchSpaceMap, filterFn, rows, filter]);
 
-  const columns: Array<DynamicTableColumnProps<ContactPair>> = [
+  const showGuidelines = false;
+  const wrapperClass = cx(styles.wrapper, { [styles.wrapperMargin]: showGuidelines });
+
+  const TableComponent = showGuidelines ? DynamicTableWithGuidelines : DynamicTable;
+
+  return (
+    <>
+      <div className={styles.searchWrapper}>
+        <Stack direction="column" gap={1}>
+          <Stack direction="row" gap={1}>
+            <Search
+              placeholder={searchPlaceholder}
+              searchFn={(phrase) => {
+                setFilter(phrase || '');
+                setQueryParams({ [filterParam]: phrase || null });
+              }}
+              searchPhrase={filter || ''}
+            />
+          </Stack>
+        </Stack>
+      </div>
+
+      {!!items.length && (<div className={wrapperClass}>
+          <TableComponent
+            cols={columns}
+            isExpandable={isExpandable}
+            items={items}
+            renderExpandedContent={renderExpandedContent}
+            pagination={{ itemsPerPage: 10 }}
+            paginationStyles={styles.pagination}
+          />
+        </div>
+      )}
+      {!items.length && (
+        <div className={cx(wrapperClass, styles.emptyMessage)}>{emptyMessage}</div>
+      )}
+    </>
+  );
+}
+
+const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
+  const styles = useStyles2(getStyles);
+  return [
     {
       id: 'legacyChannel',
       label: 'Legacy Channel',
@@ -305,7 +371,7 @@ const ChannelTable = ({
             <Link rel="noreferrer"
                   target="_blank"
                   className={styles.textLink}
-                  href={createUrl(`/alerting/notifications/receivers/${encodeURIComponent(contactPair.legacyChannel.id)}/edit`, {})}>
+                  href={createUrl(`/alerting-legacy/notifications/receivers/${encodeURIComponent(contactPair.legacyChannel.id)}/edit`, {})}>
               {contactPair.legacyChannel.name}
             </Link>
             { contactPair.legacyChannel?.type && (<Badge color="blue" text={contactPair.legacyChannel.type} />)}
@@ -332,13 +398,7 @@ const ChannelTable = ({
         return (<>
           {contactPair?.contactPoint && (
             <Matchers matchers={[[`__contacts_${contactPair.contactPoint.uid}__`, MatcherOperator.equal, "true"]]} />
-              // <Link rel="noreferrer"
-              //       target="_blank"
-              //       className={styles.textLink}
-              //       href={createUrl("/alerting/routes", {contactPoint: contactPair.contactPoint.name})}>
-              //   {`__contacts_${contactPair.contactPoint.name}__ = true`}
-              // </Link>
-            )}
+          )}
         </>)
       },
       size: 5,
@@ -360,22 +420,22 @@ const ChannelTable = ({
       // eslint-disable-next-line react/display-name
       renderCell: ({ data: contactPair }) => {
         return (
-        <Stack direction={"row"} gap={1}>
-          {contactPair?.contactPoint && (
+          <Stack direction={"row"} gap={1}>
+            {contactPair?.contactPoint && (
               <><Link rel="noreferrer"
-                 target="_blank"
-                 className={styles.textLink}
-                 href={createContactPointLink(contactPair.contactPoint.name, 'grafana')}>
+                      target="_blank"
+                      className={styles.textLink}
+                      href={createContactPointLink(contactPair.contactPoint.name, 'grafana')}>
                 {contactPair.contactPoint.name}
               </Link>
-              <Badge color="blue" text={contactPair.contactPoint.type} /></>
-          )}
-          {contactPair.error && (
-            <Tooltip theme="error" content={contactPair.error}>
-              <Icon name="exclamation-triangle" className={styles.warningIcon} />
-            </Tooltip>
-          )}
-        </Stack>
+                <Badge color="blue" text={contactPair.contactPoint.type} /></>
+            )}
+            {contactPair.error && (
+              <Tooltip theme="error" content={contactPair.error}>
+                <Icon name="exclamation-triangle" className={styles.warningIcon} size={"lg"}/>
+              </Tooltip>
+            )}
+          </Stack>
         )
       },
       size: 5,
@@ -389,50 +449,11 @@ const ChannelTable = ({
       size: '100px',
     },
   ];
-
-  if (!migratedChannels.length) {
-    return <div className={cx(wrapperClass, styles.emptyMessage)}>{emptyMessage}</div>;
-  }
-
-  const TableComponent = showGuidelines ? DynamicTableWithGuidelines : DynamicTable;
-
-  return (
-    <div className={wrapperClass} data-testid="contacts-table">
-      <TableComponent
-        cols={columns}
-        // isExpandable={true}
-        items={items}
-        // renderExpandedContent={({ data: rule }) => <RuleDetails rule={rule} />}
-        pagination={{ itemsPerPage: 10 }}
-        paginationStyles={styles.pagination}
-      />
-    </div>
-  );
-};
-
-interface UpgradedAlertsProps {
-  migratedDashboards: DashboardUpgrade[];
 }
 
-const UpgradedAlerts = ({
-                          migratedDashboards,
-                          }: UpgradedAlertsProps) => {
+const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => {
   const styles = useStyles2(getStyles);
-  const showGuidelines = false;
-  const className = undefined;
-
-  const wrapperClass = cx(styles.wrapper, className, { [styles.wrapperMargin]: showGuidelines });
-
-  const items = useMemo((): Array<DynamicTableItemProps<DashboardUpgrade>> => {
-    return migratedDashboards.map((dashUpgrade, Idx) => {
-      return {
-        id: `${dashUpgrade?.dashboardId}-${Idx}`,
-        data: dashUpgrade,
-      };
-    });
-  }, [migratedDashboards]);
-
-  const columns: Array<DynamicTableColumnProps<DashboardUpgrade>> = [
+  return [
     {
       id: 'dashboard-level-error',
       label: '',
@@ -443,7 +464,7 @@ const UpgradedAlerts = ({
         }
         return (
           <Tooltip theme="error" content={error}>
-            <Icon name="exclamation-triangle" className={styles.warningIcon} />
+            <Icon name="exclamation-triangle" className={styles.warningIcon} size={"lg"}/>
           </Tooltip>
         )
       },
@@ -545,7 +566,6 @@ const UpgradedAlerts = ({
               key="gotofolder"
               icon="folder-open"
               tooltip="go to folder"
-              className={styles.blueIcon}
               to={makeFolderLink(dashUpgrade.folderUid)}
               target="__blank"
             />)}
@@ -554,7 +574,6 @@ const UpgradedAlerts = ({
               key="gotodash"
               icon="apps"
               tooltip="go to dashboard"
-              className={styles.blueIcon}
               to={makeDashboardLink(dashUpgrade.dashboardUid)}
               target="__blank"
             />)}
@@ -566,7 +585,6 @@ const UpgradedAlerts = ({
                   key="gotonew"
                   icon="folder-open"
                   tooltip="go to new folder"
-                  className={styles.blueIcon} //TODO
                   to={makeFolderLink(migratedFolderUid)}
                   target="__blank"/>
               </>)}
@@ -576,44 +594,88 @@ const UpgradedAlerts = ({
       size: '110px',
     },
   ];
+}
 
-  if (!migratedDashboards.length) {
-    return <div className={cx(wrapperClass, styles.emptyMessage)}>{"No alert upgrades found."}</div>;
+const ufuzzy = new uFuzzy({
+  intraMode: 1,
+  intraIns: 1,
+  intraSub: 1,
+  intraTrn: 1,
+  intraDel: 1,
+});
+
+const createfilterByMapping = <T,>(searchSpaceMap: (row: T) => string) => {
+  return (filterables:  T[], filter: string | undefined) => {
+    if (!filter) {
+      return filterables;
+    }
+    const haystack = filterables.map(searchSpaceMap);
+
+    const [idxs, info, order] = ufuzzy.search(haystack, filter);
+    if (info && order) {
+      return order.map((idx) => filterables[info.idx[idx]]);
+    } else if (idxs) {
+      return idxs.map((idx) => filterables[idx]);
+    }
+
+    return filterables;
   }
+};
+
+interface SearchProps {
+  searchFn: (searchPhrase: string) => void;
+  searchPhrase: string | undefined;
+  placeholder?: string;
+}
+
+const Search = ({ searchFn, searchPhrase, placeholder }: SearchProps) => {
+  const [searchFilter, setSearchFilter] = useState(searchPhrase);
+
+  const debouncedSearch = useMemo(() => debounce(searchFn, 600), [searchFn]);
+
+  useEffect(() => {
+    return () => {
+      // Stop the invocation of the debounced function after unmounting
+      debouncedSearch?.cancel();
+    };
+  }, [debouncedSearch]);
 
   return (
-    <DynamicTable
-      cols={columns}
-      isExpandable={true}
-      items={items}
-      renderExpandedContent={({data: dashUpgrade}) => <AlertTable dashboardUid={dashUpgrade.dashboardUid ?? ''}
-                                                                  pairs={dashUpgrade?.migratedAlerts ?? []}
-                                                                  showGuidelines={true}
-                                                                  className={styles.rulesTable}/>}
-      pagination={{ itemsPerPage: 10 }}
-      paginationStyles={styles.pagination}
+    <FilterInput
+      placeholder={placeholder}
+      value={searchFilter}
+      width={55}
+      escapeRegex={false}
+      onChange={(value) => {
+        setSearchFilter(value || '');
+        if (value === '') {
+          // This is so clicking clear is instant. Otherwise, clearing and switching tabs before debounce is ready will lose filter state.
+          debouncedSearch?.cancel();
+          searchFn('');
+        } else {
+          debouncedSearch(value || '');
+        }
+      }}
     />
   );
-}
+};
 
 interface AlertTableProps {
   pairs:  AlertPair[];
   dashboardUid: string;
   showGuidelines?: boolean;
-  className?: string;
   emptyMessage?: string;
 }
 
 const AlertTable = ({
                       pairs,
                       dashboardUid,
-                        className,
                         showGuidelines = false,
                         emptyMessage = 'No alert upgrades found.',
                       }: AlertTableProps) => {
   const styles = useStyles2(getStyles);
 
-  const wrapperClass = cx(styles.wrapper, className, { [styles.wrapperMargin]: showGuidelines });
+  const wrapperClass = cx(styles.wrapper, styles.rulesTable, { [styles.wrapperMargin]: showGuidelines });
 
   const items = useMemo((): Array<DynamicTableItemProps<AlertPair>> => {
     return pairs.map((alertPair, Idx) => {
@@ -675,7 +737,7 @@ const AlertTable = ({
           )}
           {alertPair.error && (
             <Tooltip theme="error" content={alertPair.error}>
-              <Icon name="exclamation-triangle" className={styles.warningIcon} />
+              <Icon name="exclamation-triangle" className={styles.warningIcon} size={"lg"}/>
             </Tooltip>
           )}
         </Stack>
@@ -695,14 +757,6 @@ const AlertTable = ({
       },
       size: 3,
     },
-    // {
-    //   id: 'provisioned',
-    //   label: '',
-    //   renderCell: ({ data: alertPair }) => {
-    //     return alertPair.provisioned ? <ProvisioningBadge /> : null;
-    //   },
-    //   size: '100px',
-    // },
   ];
 
   if (!pairs.length) {
@@ -884,8 +938,8 @@ export const getStyles = (theme: GrafanaTheme2) => ({
     margin-bottom: ${theme.spacing(1)};
     margin-top: ${theme.spacing(1)};
   `,
-  sectionWrapper: css`
-    margin-bottom: ${theme.spacing(4)};
+  searchWrapper: css`
+    margin-bottom: ${theme.spacing(2)};
   `,
   spinner: css`
     text-align: center;
@@ -899,9 +953,6 @@ export const getStyles = (theme: GrafanaTheme2) => ({
     &:hover {
       text-decoration: underline;
     }
-  `,
-  blueIcon: css`
-    color: ${theme.colors.text.link};
   `,
 
   statsContainer: css`
