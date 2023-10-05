@@ -101,6 +101,12 @@ type ContactPointUpgrade struct {
 	Modified   bool   `json:"modified"`
 }
 
+func (oms *OrgMigrationState) AddDashboardUpgrade(du *DashboardUpgrade) {
+	if du != nil {
+		oms.MigratedDashboards = append(oms.MigratedDashboards, du)
+	}
+}
+
 func (oms *OrgMigrationState) GetDashboardUpgrade(dashboardId int64) *DashboardUpgrade {
 	for _, du := range oms.MigratedDashboards {
 		if du.DashboardID == dashboardId {
@@ -135,22 +141,14 @@ func (oms *OrgMigrationState) ExcludeExisting(channels ...*legacymodels.AlertNot
 	return newChannels
 }
 
-func (oms *OrgMigrationState) PopContactPairs(channels ...*legacymodels.AlertNotification) []*ContactPair {
-	ids := map[int64]struct{}{}
-	for _, channel := range channels {
-		ids[channel.ID] = struct{}{}
-	}
-	popped := make([]*ContactPair, 0, len(channels))
-	var pairsToKeep []*ContactPair
-	for _, pair := range oms.MigratedChannels {
-		if _, ok := ids[pair.LegacyChannel.ID]; ok {
-			popped = append(popped, pair)
-		} else {
-			pairsToKeep = append(pairsToKeep, pair)
+func (oms *OrgMigrationState) PopContactPair(id int64) *ContactPair {
+	for i, pair := range oms.MigratedChannels {
+		if pair.LegacyChannel.ID == id {
+			oms.MigratedChannels = append(oms.MigratedChannels[:i], oms.MigratedChannels[i+1:]...)
+			return pair
 		}
 	}
-	oms.MigratedChannels = pairsToKeep
-	return popped
+	return nil
 }
 
 func (oms *OrgMigrationState) AddError(err string) {
@@ -163,22 +161,14 @@ func (oms *OrgMigrationState) AddError(err string) {
 	oms.Errors = append(oms.Errors, err)
 }
 
-func (du *DashboardUpgrade) PopAlertPairs(panelIds ...int64) []*AlertPair {
-	ids := map[int64]struct{}{}
-	for _, id := range panelIds {
-		ids[id] = struct{}{}
-	}
-	popped := make([]*AlertPair, 0, len(panelIds))
-	var pairsToKeep []*AlertPair
-	for _, pair := range du.MigratedAlerts {
-		if _, ok := ids[pair.LegacyAlert.PanelID]; ok {
-			popped = append(popped, pair)
-		} else {
-			pairsToKeep = append(pairsToKeep, pair)
+func (du *DashboardUpgrade) PopAlertPair(panelId int64) *AlertPair {
+	for i, pair := range du.MigratedAlerts {
+		if pair.LegacyAlert.PanelID == panelId {
+			du.MigratedAlerts = append(du.MigratedAlerts[:i], du.MigratedAlerts[i+1:]...)
+			return pair
 		}
 	}
-	du.MigratedAlerts = pairsToKeep
-	return popped
+	return nil
 }
 
 func (du *DashboardUpgrade) ExcludeExisting(alerts ...*legacymodels.Alert) []*legacymodels.Alert {

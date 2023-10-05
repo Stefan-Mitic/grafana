@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
+	"github.com/grafana/grafana/pkg/services/dashboards"
 	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
@@ -115,6 +116,12 @@ func (om *OrgMigration) migrateAndSaveDashboard(ctx context.Context, dashID int6
 		var err error
 		du, err = om.folderHelper.createMigratedDashboardUpgrade(ctx, om.log, dashID)
 		if err != nil {
+			if errors.Is(err, dashboards.ErrDashboardNotFound) && len(alerts) == 0 {
+				// Dashboard no longer exists and there are no orphaned alerts to migrate. Delete this dashboard from the state.
+				om.log.Debug("Dashboard no longer exists and there are no alerts to migrate", "dashboardID", dashID)
+				summary.Removed = true
+				return nil, summary, nil
+			}
 			// We don't return error here because we want to display the error in the summary and continue with other dashboards.
 			om.log.Warn("Failed to migrate dashboard", "alertCount", len(alerts), "error", err)
 			pairs := du.AddAlertErrors(err, alerts...)
@@ -167,7 +174,7 @@ func (om *OrgMigration) migrateOrgAlerts(ctx context.Context, skipExisting bool)
 			return summary, err
 		}
 
-		om.state.MigratedDashboards = append(om.state.MigratedDashboards, du)
+		om.state.AddDashboardUpgrade(du)
 		summary.Add(sum)
 	}
 	return summary, nil
@@ -179,7 +186,18 @@ func (om *OrgMigration) migrateOrgChannels(ctx context.Context, skipExisting boo
 	if err != nil {
 		return summary, fmt.Errorf("load notification channels: %w", err)
 	}
-	pairs, err := om.migrateAndSaveChannels(ctx, channels, skipExisting)
+	cfg, err := om.migrationStore.GetAlertmanagerConfig(ctx, om.orgID)
+	if err != nil {
+		return summary, fmt.Errorf("failed to get alertmanager config: %w", err)
+	}
+
+	amConfig := FromPostableUserConfig(cfg)
+	if skipExisting {
+		channels = om.state.ExcludeExisting(channels...)
+	} else {
+		amConfig.cleanupReceiversAndRoutes(om.state.MigratedChannels...)
+	}
+	pairs, err := om.migrateAndSaveChannels(ctx, channels, amConfig)
 	if err != nil {
 		return summary, err
 	}
@@ -187,19 +205,7 @@ func (om *OrgMigration) migrateOrgChannels(ctx context.Context, skipExisting boo
 	return summary, nil
 }
 
-func (om *OrgMigration) migrateAndSaveChannels(ctx context.Context, channels []*legacymodels.AlertNotification, skipExisting bool) ([]*migmodels.ContactPair, error) {
-	cfg, err := om.migrationStore.GetAlertmanagerConfig(ctx, om.orgID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get alertmanager config: %w", err)
-	}
-
-	amConfig := FromPostableUserConfig(cfg)
-	if skipExisting {
-		channels = om.state.ExcludeExisting(channels...)
-	} else {
-		amConfig.cleanupReceiversAndRoutes(om.state.PopContactPairs(channels...)...)
-	}
-
+func (om *OrgMigration) migrateAndSaveChannels(ctx context.Context, channels []*legacymodels.AlertNotification, amConfig *MigratedAlertmanagerConfig) ([]*migmodels.ContactPair, error) {
 	pairs, err := om.migrateChannels(amConfig, channels)
 	if err != nil {
 		return nil, fmt.Errorf("migrateChannels: %w", err)
@@ -209,12 +215,12 @@ func (om *OrgMigration) migrateAndSaveChannels(ctx context.Context, channels []*
 	// Validate the alertmanager configuration produced, this gives a chance to catch bad configuration at migration time.
 	// Validation between legacy and unified alerting can be different (e.g. due to bug fixes) so this would fail the migration in that case.
 	if err := om.validateAlertmanagerConfig(amConfig.PostableUserConfig); err != nil {
-		return nil, fmt.Errorf("failed to validate AlertmanagerConfig: %w", err)
+		return nil, fmt.Errorf("validate AlertmanagerConfig: %w", err)
 	}
 
 	om.log.Info("Writing alertmanager config", "orgID", om.orgID, "receivers", len(amConfig.AlertmanagerConfig.Receivers), "routes", len(amConfig.AlertmanagerConfig.Route.Routes))
 	if err := om.migrationStore.SaveAlertmanagerConfiguration(ctx, om.orgID, amConfig.PostableUserConfig); err != nil {
-		return nil, fmt.Errorf("failed to write AlertmanagerConfig: %w", err)
+		return nil, fmt.Errorf("write AlertmanagerConfig: %w", err)
 	}
 
 	return pairs, nil

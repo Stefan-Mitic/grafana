@@ -122,6 +122,7 @@ type OrgMigrationSummary struct {
 	NewDashboards int  `json:"newDashboards"`
 	NewAlerts     int  `json:"newAlerts"`
 	NewChannels   int  `json:"newChannels"`
+	Removed       bool `json:"removed"`
 	HasErrors     bool `json:"hasErrors"`
 }
 

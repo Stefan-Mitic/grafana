@@ -449,6 +449,7 @@ func FromOrgMigrationSummary(summary migmodels.OrgMigrationSummary) definitions.
 		NewDashboards: summary.NewDashboards,
 		NewAlerts:     summary.NewAlerts,
 		NewChannels:   summary.NewChannels,
+		Removed:       summary.Removed,
 		HasErrors:     summary.HasErrors,
 	}
 }

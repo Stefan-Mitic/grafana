@@ -13,6 +13,7 @@ export interface OrgMigrationSummary {
   newDashboards: number;
   newAlerts: number;
   newChannels: number;
+  removed: boolean;
   hasErrors: boolean;
 }
 
@@ -123,7 +124,11 @@ export const upgradeApi = alertingApi.injectEndpoints({
           if(data.hasErrors) {
             dispatch(notifyApp(createWarningNotification(`Failed to upgrade notification channel '${channelId}'`)));
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Upgraded notification channel '${channelId}'`)));
+            if (data.removed) {
+              dispatch(notifyApp(createSuccessNotification(`Notification channel '${channelId}' not found, removed from list of upgrades`)));
+            } else {
+              dispatch(notifyApp(createSuccessNotification(`Upgraded notification channel '${channelId}'`)));
+            }
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
@@ -173,7 +178,11 @@ export const upgradeApi = alertingApi.injectEndpoints({
           if ( data.hasErrors ) {
             dispatch(notifyApp(createWarningNotification(`Failed to upgrade alert from dashboard '${dashboardId}', panel '${panelId}'`)));
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Upgraded alert from dashboard '${dashboardId}', panel '${panelId}'`)));
+            if (data.removed) {
+              dispatch(notifyApp(createSuccessNotification(`Alert from dashboard '${dashboardId}', panel '${panelId}' not found, removed from list of upgrades`)));
+            } else {
+              dispatch(notifyApp(createSuccessNotification(`Upgraded alert from dashboard '${dashboardId}', panel '${panelId}'`)));
+            }
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
@@ -198,7 +207,11 @@ export const upgradeApi = alertingApi.injectEndpoints({
           if(data.hasErrors) {
             dispatch(notifyApp(createWarningNotification(`Issues while upgrading ${data.newAlerts} ${skipExisting?'new ':''}alerts from dashboard '${dashboardId}'`)));
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newAlerts} ${skipExisting?'new ':''}alerts from dashboard '${dashboardId}'`)));
+            if (data.removed) {
+              dispatch(notifyApp(createSuccessNotification(`Dashboard '${dashboardId}' not found, removed from list of upgrades`)));
+            } else {
+              dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newAlerts} ${skipExisting?'new ':''}alerts from dashboard '${dashboardId}'`)));
+            }
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
@@ -354,7 +367,7 @@ export const upgradeApi = alertingApi.injectEndpoints({
           if (byErrors !== 0) {
             return byErrors;
           }
-          return (a.contactPoint?.name??'').localeCompare(b.contactPoint?.name??'');
+          return (a.legacyChannel?.name??'').localeCompare(b.legacyChannel?.name??'');
         })
 
         return summary;

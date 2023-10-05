@@ -4,6 +4,7 @@ type OrgMigrationSummary struct {
 	NewDashboards int
 	NewAlerts     int
 	NewChannels   int
+	Removed       bool
 	HasErrors     bool
 }
 
@@ -11,6 +12,7 @@ func (s *OrgMigrationSummary) Add(other OrgMigrationSummary) {
 	s.NewDashboards += other.NewDashboards
 	s.NewAlerts += other.NewAlerts
 	s.NewChannels += other.NewChannels
+	s.Removed = s.Removed || other.Removed
 	s.HasErrors = s.HasErrors || other.HasErrors
 }
 
