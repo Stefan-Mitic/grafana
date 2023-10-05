@@ -138,8 +138,8 @@ const KVNamespace = "ngalert.migration"
 // migratedKey is the kvstore key used for the migration status.
 const migratedKey = "migrated"
 
-// createdFoldersKey is the kvstore key used for the list of created folder UIDs.
-const createdFoldersKey = "createdFolders"
+// stateKey is the kvstore key used for the OrgMigrationState.
+const stateKey = "stateKey"
 
 // IsMigrated returns the migration status from the kvstore.
 func (ms *migrationStore) IsMigrated(ctx context.Context, orgID int64) (bool, error) {
@@ -165,7 +165,7 @@ func (ms *migrationStore) SetMigrated(ctx context.Context, orgID int64, migrated
 // GetOrgMigrationState returns a summary of a previous migration.
 func (ms *migrationStore) GetOrgMigrationState(ctx context.Context, orgID int64) (*migmodels.OrgMigrationState, error) {
 	kv := kvstore.WithNamespace(ms.kv, orgID, KVNamespace)
-	content, exists, err := kv.Get(ctx, createdFoldersKey)
+	content, exists, err := kv.Get(ctx, stateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (ms *migrationStore) SetOrgMigrationState(ctx context.Context, orgID int64,
 		return err
 	}
 
-	return kv.Set(ctx, createdFoldersKey, string(raw))
+	return kv.Set(ctx, stateKey, string(raw))
 }
 
 func (ms *migrationStore) InsertAlertRules(ctx context.Context, rules ...models.AlertRule) error {
