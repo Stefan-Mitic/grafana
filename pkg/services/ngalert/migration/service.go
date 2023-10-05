@@ -24,9 +24,6 @@ import (
 // actionName is the unique row-level lock name for serverlock.ServerLockService.
 const actionName = "alerting migration"
 
-//nolint:stylecheck
-var ForceMigrationError = fmt.Errorf("Grafana has already been migrated to Unified Alerting. Any alert rules created while using Unified Alerting will be deleted by rolling back. Set force_migration=true in your grafana.ini and restart Grafana to roll back and delete Unified Alerting configuration data.")
-
 const anyOrg = 0
 
 type MigrationService struct {
@@ -344,16 +341,6 @@ func (ms *MigrationService) MigrateOrg(ctx context.Context, orgID int64, skipExi
 	return summary, nil
 }
 
-// MigrateAllOrgs executes the migration for all orgs.
-func (ms *MigrationService) MigrateAllOrgs(ctx context.Context) error {
-	ms.mtx.Lock()
-	defer ms.mtx.Unlock()
-	return ms.store.InTransaction(ctx, func(ctx context.Context) error {
-		ms.log.Info("Migrating all orgs")
-		return ms.migrateAllOrgs(ctx)
-	})
-}
-
 func (ms *MigrationService) GetOrgMigrationState(ctx context.Context, orgID int64) (*migmodels.OrgMigrationState, error) {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
@@ -373,9 +360,13 @@ func (ms *MigrationService) GetOrgMigrationState(ctx context.Context, orgID int6
 	return state, nil
 }
 
-// Run starts the migration. This will either migrate from legacy alerting to unified alerting or revert the migration.
-// If the migration status in the kvstore is not set and unified alerting is enabled, the migration will be executed.
-// If the migration status in the kvstore is set and both unified alerting is disabled and ForceMigration is set to true, the migration will be reverted.
+// Run starts the migration, any migration issues will throw an error.
+// If we are moving from legacy->UA:
+//   - All orgs without their migration status set to true in the kvstore will be migrated.
+//   - If ForceMigration=true, then UA will be reverted first. So, all orgs will be migrated from scratch.
+//
+// If we are moving from UA->legacy:
+//   - No-op except to set a kvstore flag with orgId=0 that lets us determine when we move from legacy->UA. No UA resources are deleted or reverted.
 func (ms *MigrationService) Run(ctx context.Context) error {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
@@ -387,23 +378,25 @@ func (ms *MigrationService) Run(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("getting migration status: %w", err)
 			}
-			if migrated == ms.cfg.UnifiedAlerting.IsEnabled() {
-				// Nothing to do.
-				ms.log.Info("No migrations to run")
+
+			if !ms.cfg.UnifiedAlerting.IsEnabled() {
+				// Set status to false so that next time UA is enabled, we run the migration again. That is when
+				// ForceMigration will be checked to determine if revert should happen.
+				err = ms.migrationStore.SetMigrated(ctx, anyOrg, false)
+				if err != nil {
+					return fmt.Errorf("setting migration status: %w", err)
+				}
 				return nil
 			}
 
 			if migrated {
-				// If legacy alerting is also disabled, there is nothing to do
-				if setting.AlertingEnabled != nil && !*setting.AlertingEnabled {
-					return nil
-				}
+				ms.log.Info("Migration already run")
+				return nil
+			}
 
-				// Safeguard to prevent data loss when reverting from UA to LA.
-				if !ms.cfg.ForceMigration {
-					return ForceMigrationError
-				}
-
+			// Safeguard to prevent data loss.
+			if ms.cfg.ForceMigration {
+				ms.log.Info("ForceMigration enabled, reverting and migrating orgs from scratch")
 				// Revert migration
 				ms.log.Info("Reverting legacy migration")
 				err := ms.migrationStore.RevertAllOrgs(ctx)
@@ -411,13 +404,17 @@ func (ms *MigrationService) Run(ctx context.Context) error {
 					return fmt.Errorf("reverting migration: %w", err)
 				}
 				ms.log.Info("Legacy migration reverted")
-				return nil
 			}
 
 			ms.log.Info("Starting legacy migration")
 			err = ms.migrateAllOrgs(ctx)
 			if err != nil {
 				return fmt.Errorf("executing migration: %w", err)
+			}
+
+			err = ms.migrationStore.SetMigrated(ctx, anyOrg, true)
+			if err != nil {
+				return fmt.Errorf("setting migration status: %w", err)
 			}
 
 			ms.log.Info("Completed legacy migration")
@@ -442,19 +439,26 @@ func (ms *MigrationService) migrateAllOrgs(ctx context.Context) error {
 	}
 
 	for _, o := range orgs {
+		om := ms.newOrgMigration(o.ID)
 		migrated, err := ms.migrationStore.IsMigrated(ctx, o.ID)
 		if err != nil {
 			return fmt.Errorf("getting migration status for org %d: %w", o.ID, err)
 		}
 		if migrated {
-			ms.log.Warn("Skipping org, active migration already exists", "orgID", o.ID)
+			om.log.Info("Org already migrated, skipping")
 			continue
 		}
-		om := ms.newOrgMigration(o.ID)
-		_, err = om.migrateOrg(ctx, true)
+
+		_, err = om.migrateOrg(ctx, false)
 		if err != nil {
 			return fmt.Errorf("migrate org %d: %w", o.ID, err)
 		}
+
+		nestedErrors := om.state.NestedErrors()
+		if len(nestedErrors) > 0 {
+			return fmt.Errorf("org %d migration contains issues: %q", o.ID, nestedErrors)
+		}
+
 		if err := om.writeSilencesFile(); err != nil {
 			return fmt.Errorf("write silence file for org %d: %w", o.ID, err)
 		}
@@ -471,11 +475,6 @@ func (ms *MigrationService) migrateAllOrgs(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("setting migration status: %w", err)
 		}
-	}
-
-	err = ms.migrationStore.SetMigrated(ctx, anyOrg, true)
-	if err != nil {
-		return fmt.Errorf("setting migration status: %w", err)
 	}
 	return nil
 }

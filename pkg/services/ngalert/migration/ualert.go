@@ -41,9 +41,7 @@ func (om *OrgMigration) migrateAndSaveAlerts(ctx context.Context, alerts []*lega
 		alertRule, err := om.migrateAlert(ctx, al, da, info)
 		if err != nil {
 			al.Warn("Failed to migrate alert", "error", err)
-			pair := newAlertPair(da)
-			pair.Error = err.Error()
-			pairs = append(pairs, pair)
+			pairs = append(pairs, migmodels.NewAlertPair(da, err))
 			continue
 		}
 
@@ -55,7 +53,7 @@ func (om *OrgMigration) migrateAndSaveAlerts(ctx context.Context, alerts []*lega
 		dedupSet.add(alertRule.Title)
 		om.silences = append(om.silences, createSilences(al, da, alertRule)...)
 
-		pair := newAlertPair(da)
+		pair := migmodels.NewAlertPair(da, nil)
 		pair.AttachAlertRule(*alertRule)
 		pairs = append(pairs, pair)
 		rules = append(rules, *alertRule)

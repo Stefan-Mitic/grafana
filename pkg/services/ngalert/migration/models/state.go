@@ -1,7 +1,10 @@
 package models
 
 import (
+	"sort"
+
 	"github.com/prometheus/common/model"
+	"golang.org/x/exp/slices"
 
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
@@ -101,6 +104,34 @@ type ContactPointUpgrade struct {
 	Modified   bool   `json:"modified"`
 }
 
+func (oms *OrgMigrationState) NestedErrors() []string {
+	var allErrors []string
+
+	// Errors such as failure to persist or load from database.
+	allErrors = append(allErrors, oms.Errors...)
+
+	for _, du := range oms.MigratedDashboards {
+		// Currently unused, but here for future use.
+		allErrors = append(allErrors, du.Errors...)
+		for _, pair := range du.MigratedAlerts {
+			if pair.Error != "" {
+				// All issues with migrating alerts, such as: failure to find dashboard, folder, or issues when creating new folder.
+				allErrors = append(allErrors, pair.Error)
+			}
+		}
+	}
+
+	// Holds issues with creating new contact points or routes. Mostly discontinued channel types (hipmunk, sensu).
+	for _, pair := range oms.MigratedChannels {
+		if pair.Error != "" {
+			allErrors = append(allErrors, pair.Error)
+		}
+	}
+
+	sort.Strings(allErrors)
+	return slices.Compact(allErrors)
+}
+
 func (oms *OrgMigrationState) AddDashboardUpgrade(du *DashboardUpgrade) {
 	if du != nil {
 		oms.MigratedDashboards = append(oms.MigratedDashboards, du)
@@ -198,7 +229,8 @@ func (du *DashboardUpgrade) SetNewFolder(uid, name string) {
 	du.NewFolderUID = uid
 	du.NewFolderName = name
 }
-func (du *DashboardUpgrade) AddAlert(da *legacymodels.Alert) *AlertPair {
+
+func NewAlertPair(da *legacymodels.Alert, err error) *AlertPair {
 	pair := &AlertPair{
 		LegacyAlert: &LegacyAlert{
 			Modified:       false,
@@ -213,17 +245,18 @@ func (du *DashboardUpgrade) AddAlert(da *legacymodels.Alert) *AlertPair {
 			For:            model.Duration(da.For),
 		},
 	}
-	du.MigratedAlerts = append(du.MigratedAlerts, pair)
+	if err != nil {
+		pair.Error = err.Error()
+	}
 	return pair
 }
 
 func (du *DashboardUpgrade) AddAlertErrors(err error, alerts ...*legacymodels.Alert) []*AlertPair {
 	pairs := make([]*AlertPair, 0, len(alerts))
 	for _, da := range alerts {
-		pair := du.AddAlert(da)
-		pair.Error = err.Error()
-		pairs = append(pairs, pair)
+		pairs = append(pairs, NewAlertPair(da, err))
 	}
+	du.MigratedAlerts = append(du.MigratedAlerts, pairs...)
 
 	return pairs
 }

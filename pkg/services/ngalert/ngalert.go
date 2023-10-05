@@ -29,7 +29,6 @@ import (
 	"github.com/grafana/grafana/pkg/services/ngalert/image"
 	"github.com/grafana/grafana/pkg/services/ngalert/metrics"
 	"github.com/grafana/grafana/pkg/services/ngalert/migration"
-	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/notifier"
 	"github.com/grafana/grafana/pkg/services/ngalert/provisioning"
@@ -70,8 +69,7 @@ func ProvideService(
 	pluginsStore pluginstore.Store,
 	tracer tracing.Tracer,
 	ruleStore *store.DBstore,
-	upgradeStore migrationStore.Store,
-	dashboardPermissions accesscontrol.DashboardPermissionsService,
+	upgradeService *migration.MigrationService,
 ) (*AlertNG, error) {
 	ng := &AlertNG{
 		Cfg:                  cfg,
@@ -98,9 +96,11 @@ func ProvideService(
 		pluginsStore:         pluginsStore,
 		tracer:               tracer,
 		store:                ruleStore,
+		upgradeService:       upgradeService,
+	}
 
-		upgradeStore:         upgradeStore,
-		dashboardPermissions: dashboardPermissions,
+	if !ng.shouldRun() {
+		return ng, nil
 	}
 
 	if err := ng.init(); err != nil {
@@ -146,8 +146,7 @@ type AlertNG struct {
 	pluginsStore pluginstore.Store
 	tracer       tracing.Tracer
 
-	upgradeStore         migrationStore.Store
-	dashboardPermissions accesscontrol.DashboardPermissionsService
+	upgradeService *migration.MigrationService
 }
 
 func (ng *AlertNG) init() error {
@@ -251,15 +250,6 @@ func (ng *AlertNG) init() error {
 		int64(ng.Cfg.UnifiedAlerting.DefaultRuleEvaluationInterval.Seconds()),
 		int64(ng.Cfg.UnifiedAlerting.BaseInterval.Seconds()), ng.Log)
 
-	upgradeService, err := migration.ProvideService(
-		nil,
-		ng.Cfg,
-		ng.SQLStore,
-		ng.upgradeStore,
-		ng.SecretsService,
-		ng.dashboardPermissions,
-	)
-
 	ng.api = &api.API{
 		Cfg:                  ng.Cfg,
 		DatasourceCache:      ng.DataSourceCache,
@@ -287,7 +277,7 @@ func (ng *AlertNG) init() error {
 		Historian:            history,
 		Hooks:                api.NewHooks(ng.Log),
 		Tracer:               ng.tracer,
-		UpgradeService:       upgradeService,
+		UpgradeService:       ng.upgradeService,
 	}
 	ng.api.RegisterAPIEndpoints(ng.Metrics.GetAPIMetrics())
 
@@ -332,9 +322,34 @@ func subscribeToFolderChanges(logger log.Logger, bus bus.Bus, dbStore api.RuleSt
 	})
 }
 
+func (ng *AlertNG) shouldRun() bool {
+	if ng.Cfg.UnifiedAlerting.IsEnabled() {
+		return true
+	}
+
+	// Feature flag will preview UA alongside legacy, so that UA routes are registered but the scheduler remains disabled.
+	if ng.Cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUA) {
+		return true
+	}
+
+	return false
+}
+
 // Run starts the scheduler and Alertmanager.
 func (ng *AlertNG) Run(ctx context.Context) error {
 	ng.Log.Debug("Starting")
+
+	// Migration is called, even if UA is disabled. If UA is disabled though, this will do nothing except set the
+	// instance-wide migration state to false. This is necessary to allow force_migration to revert UA only when moving
+	// from legacy to UA.
+	err := ng.upgradeService.Run(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !ng.shouldRun() {
+		return nil
+	}
 
 	ng.stateManager.Warm(ctx, ng.store)
 
@@ -358,16 +373,7 @@ func (ng *AlertNG) Run(ctx context.Context) error {
 
 // IsDisabled returns true if the alerting service is disabled for this instance.
 func (ng *AlertNG) IsDisabled() bool {
-	if ng.Cfg == nil {
-		return true
-	}
-
-	// Feature flag will enable UA so that routes are registered but keep the scheduler disabled.
-	if ng.Cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUA) {
-		return false
-	}
-
-	return !ng.Cfg.UnifiedAlerting.IsEnabled()
+	return ng.Cfg == nil
 }
 
 // GetHooks returns a facility for replacing handlers for paths. The handler hook for a path

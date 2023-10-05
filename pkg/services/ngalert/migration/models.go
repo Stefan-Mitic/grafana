@@ -36,23 +36,6 @@ type OrgMigration struct {
 	state *migmodels.OrgMigrationState
 }
 
-func newAlertPair(da *legacymodels.Alert) *migmodels.AlertPair {
-	return &migmodels.AlertPair{
-		LegacyAlert: &migmodels.LegacyAlert{
-			Modified:       false,
-			ID:             da.ID,
-			DashboardID:    da.DashboardID,
-			PanelID:        da.PanelID,
-			Name:           da.Name,
-			Paused:         da.State == legacymodels.AlertStatePaused,
-			Silenced:       da.Silenced,
-			ExecutionError: da.ExecutionError,
-			Frequency:      da.Frequency,
-			For:            model.Duration(da.For),
-		},
-	}
-}
-
 func newContactPair(channel *legacymodels.AlertNotification, contactPoint *apiModels.PostableApiReceiver, route *apiModels.Route, err error) *migmodels.ContactPair {
 	pair := &migmodels.ContactPair{
 		LegacyChannel: &migmodels.LegacyChannel{
