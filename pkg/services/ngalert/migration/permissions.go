@@ -15,6 +15,7 @@ import (
 	"github.com/grafana/grafana/pkg/services/dashboards"
 	"github.com/grafana/grafana/pkg/services/datasources"
 	"github.com/grafana/grafana/pkg/services/folder"
+	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 	"github.com/grafana/grafana/pkg/services/user"
@@ -32,10 +33,6 @@ var (
 		{Action: accesscontrol.ActionOrgUsersRead, Scope: accesscontrol.ScopeUsersAll},
 		{Action: accesscontrol.ActionTeamsRead, Scope: accesscontrol.ScopeTeamsAll},
 	}
-	// revertPermissions are the permissions required for the background user to revert the migration.
-	revertPermissions = []accesscontrol.Permission{
-		{Action: dashboards.ActionFoldersDelete, Scope: dashboards.ScopeFoldersAll},
-	}
 	// generalAlertingFolderTitle is the title of the general alerting folder. This is used for dashboard alerts in the general folder.
 	generalAlertingFolderTitle = "General Alerting"
 
@@ -50,13 +47,10 @@ var (
 
 // folderHelper is a helper struct for migrating dashboard/folders and their permissions.
 type folderHelper struct {
-	info          InfoStore
-	dialect       migrator.Dialect
-	orgID         int64
-	folderService folder.Service
-
-	folderPermissions    accesscontrol.FolderPermissionsService
-	dashboardPermissions accesscontrol.DashboardPermissionsService
+	dialect        migrator.Dialect
+	orgID          int64
+	migrationStore migrationStore.Store
+	mapActions     func(permission accesscontrol.ResourcePermission) string
 
 	// Folder for a dashboards based on permissions. Parent Folder ID -> unique dashboard permission -> customer folder.
 	permissionsMap map[int64]map[permissionHash]*folder.Folder
@@ -72,11 +66,6 @@ type folderHelper struct {
 // getMigrationUser returns a background user for the given orgID with permissions to execute migration-related tasks.
 func getMigrationUser(orgID int64) identity.Requester {
 	return accesscontrol.BackgroundUser("ngalert_migration", orgID, org.RoleAdmin, migratorPermissions)
-}
-
-// getRevertUser returns a background user for the given orgID with permissions to delete folders during revert.
-func getRevertUser(orgID int64) identity.Requester {
-	return accesscontrol.BackgroundUser("ngalert_migration", orgID, org.RoleAdmin, revertPermissions)
 }
 
 // getOrCreateMigratedFolder returns the folder that alerts in a given dashboard should migrate to.
@@ -201,7 +190,7 @@ func (fh *folderHelper) convertResourcePerms(rperms []accesscontrol.ResourcePerm
 	unusedPerms := make([]accesscontrol.ResourcePermission, 0)
 	for _, p := range rperms {
 		if p.IsManaged || p.IsInherited || isBasic(p.RoleName) {
-			if permission := fh.dashboardPermissions.MapActions(p); permission != "" {
+			if permission := fh.mapActions(p); permission != "" {
 				sp := accesscontrol.SetResourcePermissionCommand{
 					UserID:      p.UserId,
 					TeamID:      p.TeamId,
@@ -304,7 +293,7 @@ func (fh *folderHelper) getFolderPermissions(ctx context.Context, f *folder.Fold
 	if p, ok := fh.folderPermissionCache[f.UID]; ok {
 		return p, nil
 	}
-	p, err := fh.folderPermissions.GetPermissions(ctx, getMigrationUser(f.OrgID), f.UID)
+	p, err := fh.migrationStore.GetFolderPermissions(ctx, getMigrationUser(f.OrgID), f.UID)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +303,7 @@ func (fh *folderHelper) getFolderPermissions(ctx context.Context, f *folder.Fold
 
 // getDashboardPermissions Get permissions for dashboard.
 func (fh *folderHelper) getDashboardPermissions(ctx context.Context, d *dashboards.Dashboard) ([]accesscontrol.ResourcePermission, error) {
-	p, err := fh.dashboardPermissions.GetPermissions(ctx, getMigrationUser(fh.orgID), d.UID)
+	p, err := fh.migrationStore.GetDashboardPermissions(ctx, getMigrationUser(fh.orgID), d.UID)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +325,7 @@ func (fh *folderHelper) getFolder(ctx context.Context, dash *dashboards.Dashboar
 		return migratedFolder, err
 	}
 
-	f, err := fh.folderService.Get(ctx, &folder.GetFolderQuery{ID: &dash.FolderID, OrgID: fh.orgID, SignedInUser: getMigrationUser(fh.orgID)})
+	f, err := fh.migrationStore.GetFolder(ctx, &folder.GetFolderQuery{ID: &dash.FolderID, OrgID: fh.orgID, SignedInUser: getMigrationUser(fh.orgID)})
 	if err != nil {
 		if errors.Is(err, dashboards.ErrFolderNotFound) {
 			return nil, fmt.Errorf("folder with id %v not found", dash.FolderID)
@@ -353,7 +342,7 @@ func (fh *folderHelper) getOrCreateGeneralAlertingFolder(ctx context.Context, or
 	if fh.generalFolder != nil {
 		return fh.generalFolder, nil
 	}
-	f, err := fh.folderService.Get(ctx, &folder.GetFolderQuery{OrgID: orgID, Title: &generalAlertingFolderTitle, SignedInUser: getMigrationUser(orgID)})
+	f, err := fh.migrationStore.GetFolder(ctx, &folder.GetFolderQuery{OrgID: orgID, Title: &generalAlertingFolderTitle, SignedInUser: getMigrationUser(orgID)})
 	if err != nil {
 		if errors.Is(err, dashboards.ErrFolderNotFound) {
 			// create general alerting folder without permissions to mimic the general folder.
@@ -372,7 +361,7 @@ func (fh *folderHelper) getOrCreateGeneralAlertingFolder(ctx context.Context, or
 
 // createFolder creates a new folder with given permissions.
 func (fh *folderHelper) createFolder(ctx context.Context, orgID int64, title string, newPerms []accesscontrol.SetResourcePermissionCommand) (*folder.Folder, error) {
-	f, err := fh.folderService.Create(ctx, &folder.CreateFolderCommand{
+	f, err := fh.migrationStore.CreateFolder(ctx, &folder.CreateFolderCommand{
 		OrgID:        orgID,
 		Title:        title,
 		SignedInUser: getMigrationUser(orgID).(*user.SignedInUser),
@@ -382,7 +371,7 @@ func (fh *folderHelper) createFolder(ctx context.Context, orgID int64, title str
 	}
 
 	if len(newPerms) > 0 {
-		_, err = fh.folderPermissions.SetPermissions(ctx, orgID, f.UID, newPerms...)
+		_, err = fh.migrationStore.SetPermissions(ctx, orgID, f.UID, newPerms...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to set permissions: %w", err)
 		}

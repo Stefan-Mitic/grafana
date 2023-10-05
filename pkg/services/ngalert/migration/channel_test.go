@@ -19,6 +19,7 @@ import (
 	"github.com/grafana/grafana/pkg/infra/db"
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
+	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	ngModels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/notifier/channels_config"
 	"github.com/grafana/grafana/pkg/setting"
@@ -431,7 +432,7 @@ func TestSetupAlertmanagerConfig(t *testing.T) {
 			require.NoError(t, err)
 
 			m := newTestOrgMigration(t, 1)
-			m.store = sqlStore
+			m.migrationStore = migrationStore.NewTestMigrationStore(t, sqlStore, nil)
 			amConfig, err := m.setupAlertmanagerConfigs(context.Background())
 			if tt.expErr != nil {
 				require.Error(t, err)

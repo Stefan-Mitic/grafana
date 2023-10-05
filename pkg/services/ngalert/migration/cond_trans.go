@@ -11,14 +11,58 @@ import (
 
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/services/datasources"
+	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/tsdb/legacydata"
 	"github.com/grafana/grafana/pkg/tsdb/legacydata/interval"
 	"github.com/grafana/grafana/pkg/util"
 )
 
+// dashAlertSettings is a type for the JSON that is in the settings field of
+// the alert table.
+type dashAlertSettings struct {
+	NoDataState         string               `json:"noDataState"`
+	ExecutionErrorState string               `json:"executionErrorState"`
+	Conditions          []dashAlertCondition `json:"conditions"`
+	AlertRuleTags       any                  `json:"alertRuleTags"`
+	Notifications       []dashAlertNot       `json:"notifications"`
+}
+
+// dashAlertNot is the object that represents the Notifications array in
+// dashAlertSettings
+type dashAlertNot struct {
+	UID string `json:"uid,omitempty"`
+	ID  int64  `json:"id,omitempty"`
+}
+
+// dashAlertingConditionJSON is like classic.ClassicConditionJSON except that it
+// includes the model property with the query.
+type dashAlertCondition struct {
+	Evaluator conditionEvalJSON `json:"evaluator"`
+
+	Operator struct {
+		Type string `json:"type"`
+	} `json:"operator"`
+
+	Query struct {
+		Params       []string `json:"params"`
+		DatasourceID int64    `json:"datasourceId"`
+		Model        json.RawMessage
+	} `json:"query"`
+
+	Reducer struct {
+		// Params []any `json:"params"` (Unused)
+		Type string `json:"type"`
+	}
+}
+
+type conditionEvalJSON struct {
+	Params []float64 `json:"params"`
+	Type   string    `json:"type"` // e.g. "gt"
+}
+
 //nolint:gocyclo
-func transConditions(ctx context.Context, set dashAlertSettings, orgID int64, dsCacheService datasources.CacheService) (*condition, error) {
+func transConditions(ctx context.Context, set dashAlertSettings, orgID int64, store migrationStore.Store) (*condition, error) {
 	// TODO: needs a significant refactor to reduce complexity.
 	usr := getMigrationUser(orgID)
 
@@ -132,7 +176,7 @@ func transConditions(ctx context.Context, set dashAlertSettings, orgID int64, ds
 
 			// Could have an alert saved but datasource deleted, so can not require match.
 			dsUid := ""
-			if ds, err := dsCacheService.GetDatasource(ctx, set.Conditions[condIdx].Query.DatasourceID, usr, false); err == nil {
+			if ds, err := store.GetDatasource(ctx, set.Conditions[condIdx].Query.DatasourceID, usr); err == nil {
 				dsUid = ds.UID
 			} else {
 				if !errors.Is(err, datasources.ErrDataSourceNotFound) {

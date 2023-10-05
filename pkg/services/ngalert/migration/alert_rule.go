@@ -40,7 +40,7 @@ func (ms *MigrationService) MigrateAlert(ctx context.Context, l log.Logger, aler
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse settings: %w", err)
 	}
-	newCond, err := transConditions(ctx, parsedSettings, alert.OrgID, ms.dataSourceCache)
+	newCond, err := transConditions(ctx, parsedSettings, alert.OrgID, ms.migrationStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transform conditions: %w", err)
 	}
@@ -314,11 +314,7 @@ func (ms *MigrationService) extractChannelUIDs(ctx context.Context, l log.Logger
 
 		// Either id or uid can be defined in the dashboard alert notification settings. See alerting.NewRuleFromDBAlert.
 		if ui.ID > 0 {
-			cmd := legacymodels.GetAlertNotificationUidQuery{
-				ID:    ui.ID,
-				OrgID: orgID,
-			}
-			uid, err := ms.legacyAlertStore.GetAlertNotificationUidWithId(ctx, &cmd)
+			uid, err := ms.migrationStore.GetAlertNotificationUidWithId(ctx, orgID, ui.ID)
 			if err != nil {
 				l.Error("failed to get alert notification UID", "notificationId", ui.ID, "err", err)
 			}

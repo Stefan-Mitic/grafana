@@ -8,15 +8,13 @@ import (
 
 	pb "github.com/prometheus/alertmanager/silence/silencepb"
 
-	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
 	"github.com/grafana/grafana/pkg/services/dashboards"
-	"github.com/grafana/grafana/pkg/services/datasources"
 	"github.com/grafana/grafana/pkg/services/folder"
+	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
-	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/secrets"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 	"github.com/grafana/grafana/pkg/util"
@@ -37,10 +35,10 @@ type orgMigration struct {
 	log   log.Logger
 
 	dialect           migrator.Dialect
-	store             db.DB
-	dataPath          string
-	dsCacheService    datasources.CacheService
+	migrationStore    migrationStore.Store
 	encryptionService secrets.Service
+
+	dataPath string
 
 	folderHelper folderHelper
 
@@ -56,19 +54,16 @@ func (ms *MigrationService) newOrgMigration(orgID int64) *orgMigration {
 		orgID: orgID,
 		log:   ms.log.New("orgID", orgID),
 
-		store:             ms.store,
 		dialect:           ms.store.GetDialect(),
 		dataPath:          ms.cfg.DataPath,
-		dsCacheService:    ms.dataSourceCache,
+		migrationStore:    ms.migrationStore,
 		encryptionService: ms.encryptionService,
 
 		folderHelper: folderHelper{
-			info:                  ms.info,
 			dialect:               ms.store.GetDialect(),
+			migrationStore:        ms.migrationStore,
+			mapActions:            ms.dashboardPermissions.MapActions,
 			orgID:                 orgID,
-			folderService:         ms.folderService,
-			folderPermissions:     ms.folderPermissions,
-			dashboardPermissions:  ms.dashboardPermissions,
 			permissionsMap:        make(map[int64]map[permissionHash]*folder.Folder),
 			folderCache:           make(map[int64]*folder.Folder),
 			folderPermissionCache: make(map[string][]accesscontrol.ResourcePermission),
@@ -85,13 +80,14 @@ func (ms *MigrationService) migrateOrg(ctx context.Context, orgID int64) (*orgMi
 	om := ms.newOrgMigration(orgID)
 	om.log.Info("migrating alerts for organisation")
 
-	mappedAlerts, err := ms.slurpDashAlerts(ctx, om.log, orgID)
+	mappedAlerts, cnt, err := ms.migrationStore.GetDashboardAlerts(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get alerts for org %d: %w", orgID, err)
 	}
+	om.log.Info("Alerts found to migrate", "alerts", cnt)
 
 	for dashID, alerts := range mappedAlerts {
-		dash, err := ms.dashboardService.GetDashboard(ctx, &dashboards.GetDashboardQuery{ID: dashID, OrgID: orgID})
+		dash, err := ms.migrationStore.GetDashboard(ctx, orgID, dashID)
 		if err != nil {
 			if errors.Is(err, dashboards.ErrDashboardNotFound) {
 				om.log.Warn(fmt.Sprintf("%d alerts found but have an unknown dashboard, skipping", len(alerts)), "dashboardID", dashID)
@@ -135,7 +131,7 @@ func (ms *MigrationService) migrateOrg(ctx context.Context, orgID int64) (*orgMi
 		}
 
 		if len(rules) > 0 {
-			err = ms.insertRules(ctx, om.log, rules)
+			err = ms.migrationStore.InsertAlertRules(ctx, om.log, rules)
 			if err != nil {
 				return nil, err
 			}
@@ -158,7 +154,7 @@ func (ms *MigrationService) migrateOrg(ctx context.Context, orgID int64) (*orgMi
 	}
 
 	ms.log.Info("Writing alertmanager config", "orgID", orgID, "receivers", len(amConfig.AlertmanagerConfig.Receivers), "routes", len(amConfig.AlertmanagerConfig.Route.Routes))
-	if err := ms.writeAlertmanagerConfig(ctx, orgID, amConfig); err != nil {
+	if err := ms.migrationStore.SaveAlertmanagerConfiguration(ctx, orgID, amConfig); err != nil {
 		return nil, fmt.Errorf("failed to write AlertmanagerConfig in orgId %d: %w", orgID, err)
 	}
 
@@ -172,8 +168,7 @@ func (ms *MigrationService) migrateOrg(ctx context.Context, orgID int64) (*orgMi
 
 // Exec executes the migration.
 func (ms *MigrationService) Exec(ctx context.Context) error {
-	orgQuery := &org.SearchOrgsQuery{}
-	orgs, err := ms.orgService.Search(ctx, orgQuery)
+	orgs, err := ms.migrationStore.GetAllOrgs(ctx)
 	if err != nil {
 		return fmt.Errorf("can't get org list: %w", err)
 	}
@@ -189,7 +184,7 @@ func (ms *MigrationService) Exec(ctx context.Context) error {
 		}
 	}
 
-	err = ms.info.setCreatedFolders(ctx, createdOrgFolderUids)
+	err = ms.migrationStore.SetCreatedFolders(ctx, anyOrg, createdOrgFolderUids)
 	if err != nil {
 		return err
 	}

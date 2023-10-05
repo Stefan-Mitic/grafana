@@ -51,13 +51,13 @@ func TestServiceRevert(t *testing.T) {
 		}
 		service := NewMigrationService(t, sqlStore, cfg)
 
-		err = service.info.setMigrated(ctx, false)
+		err = service.migrationStore.SetMigrated(ctx, anyOrg, false)
 		require.NoError(t, err)
 
 		err = service.Run(ctx)
 
 		// Verify migration was run.
-		migrated, err := service.info.IsMigrated(ctx)
+		migrated, err := service.migrationStore.IsMigrated(ctx, anyOrg)
 		require.NoError(t, err)
 		require.Equal(t, true, migrated)
 
@@ -97,7 +97,7 @@ func TestServiceRevert(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify revert was run.
-		migrated, err = service.info.IsMigrated(ctx)
+		migrated, err = service.migrationStore.IsMigrated(ctx, anyOrg)
 		require.NoError(t, err)
 		require.Equal(t, false, migrated)
 
@@ -131,13 +131,13 @@ func TestServiceRevert(t *testing.T) {
 		}
 		service := NewMigrationService(t, sqlStore, cfg)
 
-		err = service.info.setMigrated(ctx, false)
+		err = service.migrationStore.SetMigrated(ctx, anyOrg, false)
 		require.NoError(t, err)
 
 		err = service.Run(ctx)
 
 		// Verify migration was run.
-		migrated, err := service.info.IsMigrated(ctx)
+		migrated, err := service.migrationStore.IsMigrated(ctx, anyOrg)
 		require.NoError(t, err)
 		require.Equal(t, true, migrated)
 
@@ -151,7 +151,7 @@ func TestServiceRevert(t *testing.T) {
 		require.NotNil(t, getDashboard(t, x, 1, "dash2-1"))
 		require.NotNil(t, getDashboard(t, x, 1, "dash-in-general-1"))
 
-		createdFolders, err := service.info.GetCreatedFolders(ctx)
+		createdFolders, err := service.migrationStore.GetCreatedFolders(ctx, anyOrg)
 		require.NoError(t, err)
 
 		// Verify list of created folders.
@@ -169,7 +169,7 @@ func TestServiceRevert(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify revert was run.
-		migrated, err = service.info.IsMigrated(ctx)
+		migrated, err = service.migrationStore.IsMigrated(ctx, anyOrg)
 		require.NoError(t, err)
 		require.Equal(t, false, migrated)
 

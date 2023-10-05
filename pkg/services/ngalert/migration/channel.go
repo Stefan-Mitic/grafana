@@ -12,7 +12,6 @@ import (
 	"github.com/prometheus/common/model"
 
 	"github.com/grafana/grafana/pkg/components/simplejson"
-	"github.com/grafana/grafana/pkg/infra/db"
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
 	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
@@ -98,29 +97,7 @@ func (om *orgMigration) validateAlertmanagerConfig(config *apimodels.PostableUse
 
 // getNotificationChannels returns all channels for this org.
 func (om *orgMigration) getNotificationChannels(ctx context.Context) ([]*legacymodels.AlertNotification, error) {
-	q := `
-	SELECT id,
-		org_id,
-		uid,
-		name,
-		type,
-		disable_resolve_message,
-		is_default,
-		settings,
-		secure_settings,
-        send_reminder,
-		frequency
-	FROM
-		alert_notification
-	WHERE
-		org_id = ?
-	ORDER BY
-	    is_default DESC
-	`
-	var alertNotifications []legacymodels.AlertNotification
-	err := om.store.WithDbSession(ctx, func(sess *db.Session) error {
-		return sess.SQL(q, om.orgID).Find(&alertNotifications)
-	})
+	alertNotifications, err := om.migrationStore.GetNotificationChannels(ctx, om.orgID)
 	if err != nil {
 		return nil, err
 	}

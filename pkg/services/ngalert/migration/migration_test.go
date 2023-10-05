@@ -17,37 +17,20 @@ import (
 	"github.com/stretchr/testify/require"
 	"xorm.io/xorm"
 
-	"github.com/grafana/grafana/pkg/api/routing"
-	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/db"
-	"github.com/grafana/grafana/pkg/infra/localcache"
 	"github.com/grafana/grafana/pkg/infra/serverlock"
 	"github.com/grafana/grafana/pkg/infra/tracing"
-	"github.com/grafana/grafana/pkg/services/accesscontrol/acimpl"
-	"github.com/grafana/grafana/pkg/services/accesscontrol/ossaccesscontrol"
-	legacyalerting "github.com/grafana/grafana/pkg/services/alerting"
 	"github.com/grafana/grafana/pkg/services/alerting/models"
 	"github.com/grafana/grafana/pkg/services/dashboards"
 	"github.com/grafana/grafana/pkg/services/datasources"
-	"github.com/grafana/grafana/pkg/services/datasources/guardian"
-	datasourceService "github.com/grafana/grafana/pkg/services/datasources/service"
-	"github.com/grafana/grafana/pkg/services/featuremgmt"
-	"github.com/grafana/grafana/pkg/services/folder/folderimpl"
-	"github.com/grafana/grafana/pkg/services/licensing/licensingtest"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
+	migStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	ngModels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
-	"github.com/grafana/grafana/pkg/services/ngalert/tests/fakes"
-	"github.com/grafana/grafana/pkg/services/ngalert/testutil"
 	"github.com/grafana/grafana/pkg/services/org"
-	"github.com/grafana/grafana/pkg/services/org/orgimpl"
-	"github.com/grafana/grafana/pkg/services/quota/quotatest"
 	fake_secrets "github.com/grafana/grafana/pkg/services/secrets/fakes"
 	"github.com/grafana/grafana/pkg/services/sqlstore"
-	"github.com/grafana/grafana/pkg/services/supportbundles/bundleregistry"
-	"github.com/grafana/grafana/pkg/services/team/teamimpl"
-	"github.com/grafana/grafana/pkg/services/user/userimpl"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/tsdb/legacydata"
 )
@@ -122,7 +105,7 @@ func TestServiceStart(t *testing.T) {
 			ctx := context.Background()
 			service := NewMigrationService(t, sqlStore, tt.config)
 
-			err := service.info.setMigrated(ctx, tt.isMigrationRun)
+			err := service.migrationStore.SetMigrated(ctx, anyOrg, tt.isMigrationRun)
 			require.NoError(t, err)
 
 			err = service.Run(ctx)
@@ -132,7 +115,7 @@ func TestServiceStart(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			migrated, err := service.info.IsMigrated(ctx)
+			migrated, err := service.migrationStore.IsMigrated(ctx, anyOrg)
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, migrated)
 		})
@@ -1292,62 +1275,15 @@ func getDashboard(t *testing.T, x *xorm.Engine, orgId int64, uid string) *dashbo
 }
 
 func NewMigrationService(t *testing.T, sqlStore *sqlstore.SQLStore, cfg *setting.Cfg) *MigrationService {
-	if cfg.UnifiedAlerting.BaseInterval == 0 {
-		cfg.UnifiedAlerting.BaseInterval = time.Second * 10
-	}
-	features := featuremgmt.WithFeatures()
-	cfg.IsFeatureToggleEnabled = features.IsEnabled
-	alertingStore := store.DBstore{
-		SQLStore: sqlStore,
-		Cfg:      cfg.UnifiedAlerting,
-	}
-	tracer := tracing.InitializeTracerForTest()
-	bus := bus.ProvideBus(tracer)
-	folderStore := folderimpl.ProvideDashboardFolderStore(sqlStore)
-	dashboardService, dashboardStore := testutil.SetupDashboardService(t, sqlStore, folderStore, cfg)
-	folderService := testutil.SetupFolderService(t, cfg, sqlStore, dashboardStore, folderStore, bus)
-
-	cache := localcache.ProvideService()
-	quotaService := &quotatest.FakeQuotaService{}
-	ac := acimpl.ProvideAccessControl(cfg)
-	routeRegister := routing.ProvideRegister()
-	acSvc, err := acimpl.ProvideService(cfg, sqlStore, routing.ProvideRegister(), cache, ac, features)
-	require.NoError(t, err)
-
-	license := licensingtest.NewFakeLicensing()
-	license.On("FeatureEnabled", "accesscontrol.enforcement").Return(true).Maybe()
-	teamSvc := teamimpl.ProvideService(sqlStore, cfg)
-	orgService, err := orgimpl.ProvideService(sqlStore, cfg, quotaService)
-	require.NoError(t, err)
-	userSvc, err := userimpl.ProvideService(sqlStore, orgService, cfg, teamSvc, cache, quotaService, bundleregistry.ProvideService())
-	require.NoError(t, err)
-
-	folderPermissions, err := ossaccesscontrol.ProvideFolderPermissions(
-		features, routeRegister, sqlStore, ac, license, dashboardStore, folderService, acSvc, teamSvc, userSvc)
-	require.NoError(t, err)
-	dashboardPermissions, err := ossaccesscontrol.ProvideDashboardPermissions(
-		features, routeRegister, sqlStore, ac, license, dashboardStore, folderService, acSvc, teamSvc, userSvc)
-	require.NoError(t, err)
-
-	err = acSvc.RegisterFixedRoles(context.Background())
-	require.NoError(t, err)
-
-	legacyAlertStore := legacyalerting.ProvideAlertStore(sqlStore, cache, cfg, nil, features)
+	migrationStore := migStore.NewTestMigrationStore(t, sqlStore, cfg)
 
 	ms, err := ProvideService(
-		serverlock.ProvideService(sqlStore, tracer),
+		serverlock.ProvideService(sqlStore, tracing.NewFakeTracer()),
 		cfg,
 		sqlStore,
-		fakes.NewFakeKVStore(t),
-		&alertingStore,
+		migrationStore,
 		fake_secrets.NewFakeSecretsService(),
-		dashboardService,
-		folderService,
-		datasourceService.ProvideCacheService(cache, sqlStore, guardian.ProvideGuardian()),
-		folderPermissions,
-		dashboardPermissions,
-		orgService,
-		legacyAlertStore,
+		migrationStore.DashboardPermissions(),
 	)
 	require.NoError(t, err)
 	return ms

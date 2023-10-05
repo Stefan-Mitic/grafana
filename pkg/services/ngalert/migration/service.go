@@ -8,19 +8,12 @@ import (
 	"time"
 
 	"github.com/grafana/grafana/pkg/infra/db"
-	"github.com/grafana/grafana/pkg/infra/kvstore"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/serverlock"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
-	legacyalerting "github.com/grafana/grafana/pkg/services/alerting"
-	"github.com/grafana/grafana/pkg/services/dashboards"
-	"github.com/grafana/grafana/pkg/services/datasources"
-	"github.com/grafana/grafana/pkg/services/folder"
+	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	"github.com/grafana/grafana/pkg/services/ngalert/notifier"
-	"github.com/grafana/grafana/pkg/services/ngalert/store"
-	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/secrets"
-	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/setting"
 )
 
@@ -30,56 +23,35 @@ const actionName = "alerting migration"
 //nolint:stylecheck
 var ForceMigrationError = fmt.Errorf("Grafana has already been migrated to Unified Alerting. Any alert rules created while using Unified Alerting will be deleted by rolling back. Set force_migration=true in your grafana.ini and restart Grafana to roll back and delete Unified Alerting configuration data.")
 
-type MigrationService struct {
-	lock                 *serverlock.ServerLockService
-	store                db.DB
-	cfg                  *setting.Cfg
-	log                  log.Logger
-	info                 InfoStore
-	ruleStore            RuleStore
-	alertingStore        AlertingStore
-	encryptionService    secrets.Service
-	dashboardService     dashboards.DashboardService
-	folderService        folder.Service
-	dataSourceCache      datasources.CacheService
-	folderPermissions    accesscontrol.FolderPermissionsService
-	dashboardPermissions accesscontrol.DashboardPermissionsService
-	orgService           org.Service
+const anyOrg = 0
 
-	legacyAlertStore legacyalerting.AlertStore
+type MigrationService struct {
+	lock           *serverlock.ServerLockService
+	cfg            *setting.Cfg
+	log            log.Logger
+	store          db.DB
+	migrationStore migrationStore.Store
+
+	encryptionService    secrets.Service
+	dashboardPermissions accesscontrol.DashboardPermissionsService
 }
 
 func ProvideService(
 	lock *serverlock.ServerLockService,
 	cfg *setting.Cfg,
-	sqlStore db.DB,
-	kv kvstore.KVStore,
-	ruleStore *store.DBstore,
+	store db.DB,
+	migrationStore migrationStore.Store,
 	encryptionService secrets.Service,
-	dashboardService dashboards.DashboardService,
-	folderService folder.Service,
-	dataSourceCache datasources.CacheService,
-	folderPermissions accesscontrol.FolderPermissionsService,
 	dashboardPermissions accesscontrol.DashboardPermissionsService,
-	orgService org.Service,
-	legacyAlertStore legacyalerting.AlertStore,
 ) (*MigrationService, error) {
 	return &MigrationService{
 		lock:                 lock,
 		log:                  log.New("ngalert.migration"),
 		cfg:                  cfg,
-		store:                sqlStore,
-		info:                 InfoStore{kv: kvstore.WithNamespace(kv, 0, KVNamespace)},
-		ruleStore:            ruleStore,
-		alertingStore:        ruleStore,
+		store:                store,
+		migrationStore:       migrationStore,
 		encryptionService:    encryptionService,
-		dashboardService:     dashboardService,
-		folderService:        folderService,
-		dataSourceCache:      dataSourceCache,
-		folderPermissions:    folderPermissions,
 		dashboardPermissions: dashboardPermissions,
-		orgService:           orgService,
-		legacyAlertStore:     legacyAlertStore,
 	}, nil
 }
 
@@ -91,7 +63,7 @@ func (ms *MigrationService) Run(ctx context.Context) error {
 	errLock := ms.lock.LockExecuteAndRelease(ctx, actionName, time.Minute*10, func(context.Context) {
 		ms.log.Info("Starting")
 		errMigration = ms.store.InTransaction(ctx, func(ctx context.Context) error {
-			migrated, err := ms.info.IsMigrated(ctx)
+			migrated, err := ms.migrationStore.IsMigrated(ctx, anyOrg)
 			if err != nil {
 				return fmt.Errorf("getting migration status: %w", err)
 			}
@@ -128,7 +100,7 @@ func (ms *MigrationService) Run(ctx context.Context) error {
 				return fmt.Errorf("executing migration: %w", err)
 			}
 
-			err = ms.info.setMigrated(ctx, true)
+			err = ms.migrationStore.SetMigrated(ctx, anyOrg, true)
 			if err != nil {
 				return fmt.Errorf("setting migration status: %w", err)
 			}
@@ -166,24 +138,9 @@ func (ms *MigrationService) Revert(ctx context.Context) error {
 			return err
 		}
 
-		createdFolders, err := ms.info.GetCreatedFolders(ctx)
+		err = ms.migrationStore.DeleteMigratedFolders(ctx, anyOrg)
 		if err != nil {
 			return err
-		}
-		for orgId, folderUIDs := range createdFolders {
-			usr := getRevertUser(orgId)
-
-			for _, folderUID := range folderUIDs {
-				cmd := folder.DeleteFolderCommand{
-					UID:          folderUID,
-					OrgID:        orgId,
-					SignedInUser: usr.(*user.SignedInUser),
-				}
-				err := ms.folderService.Delete(ctx, &cmd) // Also handles permissions and other related entities.
-				if err != nil {
-					return err
-				}
-			}
 		}
 
 		_, err = sess.Exec("delete from alert_configuration")
@@ -212,7 +169,7 @@ func (ms *MigrationService) Revert(ctx context.Context) error {
 				return err
 			}
 
-			_, err = sess.Exec("delete from kv_store where namespace = ?", KVNamespace)
+			_, err = sess.Exec("delete from kv_store where namespace = ?", migrationStore.KVNamespace)
 			if err != nil {
 				return err
 			}
@@ -228,7 +185,7 @@ func (ms *MigrationService) Revert(ctx context.Context) error {
 			}
 		}
 
-		err = ms.info.setMigrated(ctx, false)
+		err = ms.migrationStore.SetMigrated(ctx, anyOrg, false)
 		if err != nil {
 			return fmt.Errorf("setting migration status: %w", err)
 		}

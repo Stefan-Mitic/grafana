@@ -649,7 +649,7 @@ func TestDashAlertPermissionMigration(t *testing.T) {
 					}
 
 					for _, f := range tt.folders {
-						_, err := service.folderPermissions.SetPermissions(context.Background(), 1, f.UID, tt.folderPerms[f.UID]...)
+						_, err := service.migrationStore.SetPermissions(context.Background(), 1, f.UID, tt.folderPerms[f.UID]...)
 						require.NoError(t, err)
 					}
 					for _, d := range tt.dashboards {
@@ -672,7 +672,7 @@ func TestDashAlertPermissionMigration(t *testing.T) {
 						delete(r.Annotations, "__alertId__")
 
 						folder := getDashboard(t, x, orgId, r.NamespaceUID)
-						rperms, err := service.folderPermissions.GetPermissions(context.Background(), getMigrationUser(orgId), folder.UID)
+						rperms, err := service.migrationStore.GetFolderPermissions(context.Background(), getMigrationUser(orgId), folder.UID)
 						require.NoError(t, err)
 
 						expected := tt.expected[i]
