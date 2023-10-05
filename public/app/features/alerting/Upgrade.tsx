@@ -1197,7 +1197,6 @@ const AlertTable = ({
       id: 'contacts',
       label: 'Sends To',
       renderCell: ({ data: alertPair }) => {
-        // TODO: Maybe even show the routing preview.
         return (
           <>
             {!alertPair.error && (

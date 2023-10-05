@@ -314,7 +314,7 @@ func (ms *migrationStore) RevertAllOrgs(ctx context.Context) error {
 			return err
 		}
 
-		if _, err := sess.Exec("DELETE FROM alert_rule_version"); err != nil { //TODO rule_org_id
+		if _, err := sess.Exec("DELETE FROM alert_rule_version"); err != nil {
 			return err
 		}
 

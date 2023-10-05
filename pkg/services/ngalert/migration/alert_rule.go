@@ -91,7 +91,7 @@ func (om *OrgMigration) cleanupDashboardAlerts(ctx context.Context, du *migmodel
 			}
 		}
 
-		// Delete newly created folder if one exists and there should be nothing in it. //TODO: maybe we should just clean up empty ones at the end?
+		// Delete newly created folder if one exists and there should be nothing in it.
 		if du.NewFolderUID != "" && du.NewFolderUID != du.FolderUID {
 			// Remove uid from summary.createdFolders
 			found := false
