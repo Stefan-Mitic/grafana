@@ -129,3 +129,14 @@ func (st DBstore) DeleteProvenance(ctx context.Context, o models.Provisionable, 
 		return err
 	})
 }
+
+// DeleteProvenanceByKeys deletes the provenance of multiple records from the table
+func (st DBstore) DeleteProvenanceByKeys(ctx context.Context, org int64, recordType string, recordKeys ...string) error {
+	return st.SQLStore.WithTransactionalDbSession(ctx, func(sess *db.Session) error {
+		_, err := sess.In("record_key", recordKeys).Delete(provenanceRecord{
+			RecordType: recordType,
+			OrgID:      org,
+		})
+		return err
+	})
+}

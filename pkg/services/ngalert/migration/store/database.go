@@ -283,6 +283,10 @@ func (ms *migrationStore) RevertOrg(ctx context.Context, orgID int64) error {
 			return err
 		}
 
+		if _, err := sess.Exec("DELETE FROM provenance_type WHERE org_id = ?", orgID); err != nil {
+			return err
+		}
+
 		if _, err := sess.Exec("DELETE FROM kv_store WHERE namespace = ? AND org_id = ?", notifier.KVNamespace, orgID); err != nil {
 			return err
 		}
@@ -333,7 +337,11 @@ func (ms *migrationStore) RevertAllOrgs(ctx context.Context) error {
 			return err
 		}
 
-		if _, err := sess.Exec("DELETE FROM alert_instance"); err != nil { //TODO rule_org_id
+		if _, err := sess.Exec("DELETE FROM alert_instance"); err != nil {
+			return err
+		}
+
+		if _, err := sess.Exec("DELETE FROM provenance_type"); err != nil {
 			return err
 		}
 
@@ -545,7 +553,8 @@ func (ms *migrationStore) IsProvisioned(ctx context.Context, orgID int64, dashbo
 
 func (ms *migrationStore) UpsertProvenance(ctx context.Context, orgID int64, p models.Provenance, rules []models.AlertRule) error {
 	var result []models.Provisionable
-	for _, r := range rules {
+	for _, rule := range rules {
+		r := rule
 		result = append(result, &r)
 	}
 	return ms.alertingStore.UpsertProvenance(ctx, orgID, p, result...)
@@ -553,5 +562,10 @@ func (ms *migrationStore) UpsertProvenance(ctx context.Context, orgID int64, p m
 
 // DeleteAlertRules deletes alert rules in a given org by their UIDs.
 func (ms *migrationStore) DeleteAlertRules(ctx context.Context, orgID int64, alertRuleUIDs ...string) error {
-	return ms.alertingStore.DeleteAlertRulesByUID(ctx, orgID, alertRuleUIDs...)
+	err := ms.alertingStore.DeleteAlertRulesByUID(ctx, orgID, alertRuleUIDs...)
+	if err != nil {
+		return err
+	}
+
+	return ms.alertingStore.DeleteProvenanceByKeys(ctx, orgID, (&models.AlertRule{}).ResourceType(), alertRuleUIDs...)
 }
