@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { config } from '@grafana/runtime';
-import { Button } from '@grafana/ui';
+import {TextLink} from '@grafana/ui';
 
 import { CollapsableAlert } from './CollapsableAlert';
 
@@ -14,7 +14,7 @@ export const UAPreviewNotice = () => {
 
   return <CollapsableAlert
             localStoreKey={LOCAL_STORAGE_KEY}
-            alertTitle={"This is a preview of Grafana Alerting"}
+            alertTitle={"This is a preview of the upgraded Grafana Alerting"}
             collapseText={"Grafana Alerting Preview"}
             collapseTooltip={"Show preview warning"}
             severity={"warning"}
@@ -24,10 +24,10 @@ export const UAPreviewNotice = () => {
       <br />
       Please contact your administrator to upgrade permanently.
     </p>
-    <Button fill="text" icon="book" size="sm">
-      <a href="https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/">
-        Read documentation
-      </a>
-    </Button>
+    <TextLink
+      external
+      href={'https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/'}>
+      Read about upgrading
+    </TextLink>
   </CollapsableAlert>
 }

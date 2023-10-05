@@ -191,7 +191,7 @@ export function getNavSubTitle(navId: string | undefined) {
     case 'alerting':
       return t('nav.alerting.subtitle', 'Learn about problems in your systems moments after they occur');
     case 'alerting-upgrade':
-      return t('nav.alerting-upgrade.subtitle', 'Upgrade your existing legacy alerts and notification channels to the new Alerting engine');
+      return t('nav.alerting-upgrade.subtitle', 'Upgrade your existing legacy alerts and notification channels to the new Grafana Alerting');
     case 'alert-list':
       return t('nav.alerting-list.subtitle', 'Rules that determine whether an alert will fire');
     case 'receivers':

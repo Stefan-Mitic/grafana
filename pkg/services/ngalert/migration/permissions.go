@@ -84,15 +84,15 @@ func (fh *folderHelper) createMigratedDashboardUpgrade(ctx context.Context, log 
 
 	dash, err := fh.migrationStore.GetDashboard(ctx, fh.orgID, dashID)
 	if err != nil {
-		return du, fmt.Errorf("failed to get dashboard: %w", err)
+		return du, err
 	}
 	du.SetDashboard(dash.UID, dash.Title)
 	l := log.New("dashboardTitle", dash.Title, "dashboardUID", dash.UID)
 
 	provisioned, err := fh.migrationStore.IsProvisioned(ctx, fh.orgID, dash.UID)
 	if err != nil {
-		l.Warn("failed to get provisioned status for dashboard", "error", err)
-		du.AddWarning(fmt.Errorf("failed to get provisioned status: %w", err).Error())
+		l.Warn("Failed to get provisioned status for dashboard", "error", err)
+		du.AddWarning(fmt.Errorf("provisioned status: %w", err).Error())
 	}
 	du.Provisioned = provisioned
 
@@ -112,7 +112,7 @@ func (fh *folderHelper) createMigratedDashboardUpgrade(ctx context.Context, log 
 	// the previous migration.
 	migratedFolder, err := fh.getOrCreateMigratedFolder(ctx, l, dash, dashFolder)
 	if err != nil {
-		return du, fmt.Errorf("failed to get or create folder for new alert rule: %w", err)
+		return du, err
 	}
 	if migratedFolder.Title == generalAlertingFolderTitle {
 		du.AddWarning("dashboard alerts moved to general alerting folder during upgrade: original folder not found")
@@ -133,7 +133,7 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 		l.Debug("Migrating alert to the general alerting folder")
 		f, err := fh.getOrCreateGeneralAlertingFolder(ctx, fh.orgID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get or create general alerting folder: %w", err)
+			return nil, fmt.Errorf("general alerting folder: %w", err)
 		}
 		return f, nil
 	}
@@ -147,14 +147,14 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 
 		folderPerms, err := fh.getFolderPermissions(ctx, parentFolder)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get folder permissions: %w", err)
+			return nil, fmt.Errorf("folder permissions: %w", err)
 		}
 		newFolderPerms, _ := fh.convertResourcePerms(folderPerms)
 
 		// We assign the folder to the cache so that any dashboards with identical equivalent permissions will use the parent folder instead of creating a new one.
 		folderPermsHash, err := createHash(newFolderPerms)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get hash of folder permissions: %w", err)
+			return nil, fmt.Errorf("hash of folder permissions: %w", err)
 		}
 		customFolders[folderPermsHash] = parentFolder
 	}
@@ -162,21 +162,21 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 	// Now we compute the hash of the dashboard permissions and check if we have a folder for it. If not, we create a new one.
 	perms, err := fh.getDashboardPermissions(ctx, dash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get dashboard permissions: %w", err)
+		return nil, fmt.Errorf("dashboard permissions: %w", err)
 	}
 	newPerms, unusedPerms := fh.convertResourcePerms(perms)
 	hash, err := createHash(newPerms)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get hash of dashboard permissions: %w", err)
+		return nil, fmt.Errorf("hash of dashboard permissions: %w", err)
 	}
 
 	customFolder, ok := customFolders[hash]
 	if !ok {
 		folderName := generateAlertFolderName(parentFolder, hash)
-		l.Info("dashboard has custom permissions, create a new folder for alerts.", "newFolder", folderName)
+		l.Info("Dashboard has custom permissions, create a new folder for alerts.", "newFolder", folderName)
 		f, err := fh.createFolder(ctx, fh.orgID, folderName, newPerms)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create new folder: %w", err)
+			return nil, err
 		}
 
 		// If the role is not managed or basic we don't attempt to migrate its permissions. This is because

@@ -32,17 +32,11 @@ func (om *OrgMigration) migrateChannels(amConfig *MigratedAlertmanagerConfig, ch
 		receiver, err := om.createReceiver(c)
 		if err != nil {
 			om.log.Warn("Failed to create receiver", "type", c.Type, "name", c.Name, "uid", c.UID, "error", err)
-			pairs = append(pairs, newContactPair(c, receiver, nil, fmt.Errorf("create receiver: %w", err)))
+			pairs = append(pairs, newContactPair(c, receiver, nil, err))
 			continue
 		}
 
-		route, err := createRoute(c, receiver.Name)
-		if err != nil {
-			om.log.Warn("Failed to create route for receiver", "type", c.Type, "name", c.Name, "uid", c.UID, "error", err)
-			pairs = append(pairs, newContactPair(c, receiver, nil, fmt.Errorf("create route: %w", err)))
-			continue
-		}
-
+		route := createRoute(c, receiver.Name)
 		amConfig.legacyRoute.Routes = append(amConfig.legacyRoute.Routes, route)
 		amConfig.AlertmanagerConfig.Receivers = append(amConfig.AlertmanagerConfig.Receivers, receiver)
 		pairs = append(pairs, newContactPair(c, receiver, route, nil))
@@ -186,7 +180,7 @@ func createNestedLegacyRoute() *apimodels.Route {
 }
 
 // createRoute creates a route from a legacy notification channel, and matches using a label based on the channel UID.
-func createRoute(channel *legacymodels.AlertNotification, receiverName string) (*apimodels.Route, error) {
+func createRoute(channel *legacymodels.AlertNotification, receiverName string) *apimodels.Route {
 	// We create a matchers based on channel UID so that we only need a single route per channel.
 	// All routes are stored in a nested route under the root. This is so we can keep the migrated channels separate
 	// and organized.
@@ -202,17 +196,11 @@ func createRoute(channel *legacymodels.AlertNotification, receiverName string) (
 	// These will match two routes as they are all defined with Continue=true.
 
 	label := fmt.Sprintf(ContactLabelTemplate, channel.UID)
-	mat, err := labels.NewMatcher(labels.MatchEqual, label, "true")
-	if err != nil {
-		return nil, err
-	}
+	mat, _ := labels.NewMatcher(labels.MatchEqual, label, "true")
 
 	// If the channel is default, we create a catch-all matcher instead so this always matches.
 	if channel.IsDefault {
-		mat, err = labels.NewMatcher(labels.MatchRegexp, model.AlertNameLabel, ".+")
-		if err != nil {
-			return nil, err
-		}
+		mat, _ = labels.NewMatcher(labels.MatchRegexp, model.AlertNameLabel, ".+")
 	}
 
 	repeatInterval := DisabledRepeatInterval
@@ -225,7 +213,7 @@ func createRoute(channel *legacymodels.AlertNotification, receiverName string) (
 		ObjectMatchers: apimodels.ObjectMatchers{mat},
 		Continue:       true, // We continue so that each sibling contact point route can separately match.
 		RepeatInterval: &repeatInterval,
-	}, nil
+	}
 }
 
 var secureKeysToMigrate = map[string][]string{

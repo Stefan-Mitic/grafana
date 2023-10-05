@@ -1,7 +1,7 @@
 import { css, cx } from '@emotion/css';
 import uFuzzy from '@leeoniya/ufuzzy';
 import { createSelector } from '@reduxjs/toolkit';
-import {debounce, uniq} from 'lodash';
+import { debounce } from 'lodash';
 import pluralize from 'pluralize';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {useLocation} from 'react-router-dom';
@@ -25,7 +25,7 @@ import {
   TabContent,
   TabsBar,
   TagList,
-  Text,
+  Text, TextLink,
   Tooltip,
   useStyles2
 } from '@grafana/ui';
@@ -36,10 +36,10 @@ import PageLoader from '../../core/components/PageLoader/PageLoader';
 import {MatcherOperator} from '../../plugins/datasource/alertmanager/types';
 import {getSearchPlaceholder} from '../search/tempI18nPhrases';
 
+import {CollapsableAlert} from './components/CollapsableAlert';
 import {AlertPair, ContactPair, DashboardUpgrade, OrgMigrationState, upgradeApi} from "./unified/api/upgradeApi";
 import {DynamicTable, DynamicTableColumnProps, DynamicTableItemProps} from "./unified/components/DynamicTable";
 import {DynamicTableWithGuidelines} from "./unified/components/DynamicTableWithGuidelines";
-import {ProvisioningBadge} from "./unified/components/Provisioning";
 import {Matchers} from './unified/components/notification-policies/Matchers';
 import {ActionIcon} from './unified/components/rules/ActionIcon';
 import {getPaginationStyles} from './unified/styles/pagination';
@@ -66,8 +66,15 @@ export const UpgradePage = () => {
   const errors = summary?.errors ?? [];
   const hasData = alertCount > 0 || contactCount > 0 || errors.length > 0
 
+  const cancelUpgrade = useMemo(() => {
+    if (!isFetchError && hasData) {
+      return <CancelUpgradeButton/>
+    }
+    return null
+  }, [isFetchError, hasData]);
+
   return (
-      <Page navId="alerting-upgrade">
+      <Page navId="alerting-upgrade" actions={cancelUpgrade}>
           <Page.Contents>
             {isFetchError && (
               <Alert severity="error" title="Error loading Grafana Alerting upgrade information">
@@ -98,32 +105,38 @@ interface UpgradeTabsProps {
 
 export const UpgradeTabs = ({alertCount, contactCount}: UpgradeTabsProps) => {
   const styles = useStyles2(getStyles);
-  const { useCancelOrgUpgradeMutation } = upgradeApi;
-
-  const [startOver, {isLoading}] = useCancelOrgUpgradeMutation();
 
   const [queryParams, setQueryParams] = useQueryParams();
   const { tab } = getActiveTabFromUrl(queryParams);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>(tab);
 
-  const [showConfirmStartOver, setShowConfirmStartOver] = useState(false);
-
-
-  const cancelUpgrade = async () => {
-    await startOver()
-    setShowConfirmStartOver(false);
-  }
-
-  if (isLoading) {
-    return <PageLoader/>
-  }
-
   return (
           <>
+            <CollapsableAlert
+              localStoreKey={"grafana.unifiedalerting.upgrade.guideNotice"}
+              alertTitle={"Grafana Alerting upgrade guide"}
+              collapseText={"Upgrade guide"}
+              collapseTooltip={"Show upgrade guide"}
+              severity={"info"}
+              justifyContent={"flex-start"}
+            >
+              <p>
+                Preview of how your existing alert rules and notification channels wll be upgraded to the new Grafana Alerting.
+                <br />
+                Once you are happy with the results, you can permanently upgrade by modifying the Grafana configuration.
+              </p>
+              <p>{"For more information, please refer to the "}
+                <TextLink
+                  external
+                  href={'https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/'}>
+                  Grafana Alerting Migration Guide
+                </TextLink>
+              </p>
+            </CollapsableAlert>
             <TabsBar>
               <Tab
-                label={"Upgraded Alerts"}
+                label={"Upgraded alert rules"}
                 active={activeTab === ActiveTab.Alerts}
                 counter={alertCount}
                 icon={"bell"}
@@ -133,7 +146,7 @@ export const UpgradeTabs = ({alertCount, contactCount}: UpgradeTabsProps) => {
                 }}
               />
               <Tab
-                label={"Upgraded Contacts"}
+                label={"Upgraded notification channels"}
                 active={activeTab === ActiveTab.Contacts}
                 counter={contactCount}
                 icon={"at"}
@@ -142,33 +155,6 @@ export const UpgradeTabs = ({alertCount, contactCount}: UpgradeTabsProps) => {
                   setQueryParams({ tab: ActiveTab.Contacts });
                 }}
               />
-              <HorizontalGroup height="auto" justify="flex-end">
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => setShowConfirmStartOver(true)}
-                  icon={"trash-alt"}
-                  className={""}
-                >
-                  {"Cancel Upgrade"}
-                </Button>
-                {showConfirmStartOver && (
-                  <ConfirmModal
-                    isOpen={true}
-                    title="Cancel Upgrade Process"
-                    body={
-                      <Stack direction="column" gap={0.5}>
-                        <Text color="primary">Are you sure you want to cancel your upgrade?</Text>
-                        <Text color="secondary" variant="bodySmall">All Grafana Alerting resources will be deleted. This includes: alert rules, contact points, notification policies, silences, and mute timings.</Text>
-                        <Text color="secondary" variant="bodySmall" weight="bold">No legacy alerts or notification channels will be affected.</Text>
-                      </Stack>
-                    }
-                    confirmText="Yes, delete Grafana Alerting resources"
-                    onConfirm={cancelUpgrade}
-                    onDismiss={() => setShowConfirmStartOver(false)}
-                  />
-                )}
-              </HorizontalGroup>
             </TabsBar>
             <TabContent className={styles.tabContent}>
               <>
@@ -184,6 +170,47 @@ export const UpgradeTabs = ({alertCount, contactCount}: UpgradeTabsProps) => {
           </>
   );
 };
+
+const CancelUpgradeButton = () => {
+  const styles = useStyles2(getStyles);
+  const [startOver] = upgradeApi.useCancelOrgUpgradeMutation();
+  const [showConfirmStartOver, setShowConfirmStartOver] = useState(false);
+
+  const cancelUpgrade = async () => {
+    await startOver()
+    setShowConfirmStartOver(false);
+  }
+
+  return <>
+    <Button
+      size="md"
+      variant="destructive"
+      onClick={() => setShowConfirmStartOver(true)}
+      icon={"trash-alt"}
+      className={""}
+    >
+      {"Cancel upgrade"}
+    </Button>
+    {showConfirmStartOver && (
+      <ConfirmModal
+        isOpen={true}
+        title="Cancel upgrade"
+        body={
+          <Stack direction="column" gap={0.5}>
+            <Text color="primary">All new Grafana Alerting resources will be deleted.</Text>
+            <Text color="secondary" variant="bodySmall">This includes: alert rules, contact points, notification policies, silences, mute timings, and any manual changes you have made.</Text>
+            <span className={styles.separator}/>
+            <Text color="primary">No legacy alerts or notification channels will be affected.</Text>
+          </Stack>
+        }
+        confirmText="Cancel upgrade"
+        onConfirm={cancelUpgrade}
+        dismissText={"Keep reviewing"}
+        onDismiss={() => setShowConfirmStartOver(false)}
+      />
+    )}
+  </>
+}
 
 enum ActiveTab {
   Alerts = 'alerts',
@@ -225,12 +252,14 @@ const CTAElement = () => {
   const footer = (
     <>
       <span key="proTipFooter">
-        <p><Icon name="rocket" />{' '} Note: {"Starting the upgrade process will not affect your existing legacy alerts."}</p>
-        <p>{"For more information, please refer to the "}<Button fill="text" icon="book" size="sm">
-      <a href="https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/">
-      Grafana Alerting Migration Guide
-      </a>
-    </Button></p>
+        <p>Note: {"Previewing the upgrade process will not affect your existing legacy alerts."}</p>
+        <p>{"For more information, please refer to the "}
+          <TextLink
+            external
+            href={'https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/'}>
+            Grafana Alerting Migration Guide
+          </TextLink>
+        </p>
 
         {/* <div className={css({'align-items': 'left'})}>
         <p>{"This process will automatically copy and convert your existing legacy alerts to Grafana Alerting, however Grafana Alerting will not be enabled until you modify the Grafana configuration." +
@@ -250,11 +279,11 @@ const CTAElement = () => {
         <Stack direction="row" gap={1}>
           <Button
             size="lg"
-            variant="destructive"
+            variant="primary"
             onClick={upgradeAlerting}
             icon={"bell"}
             className={""}
-            data-testid={selectors.components.CallToActionCard.buttonV2("Start Upgrade")}
+            data-testid={selectors.components.CallToActionCard.buttonV2("Preview upgrade")}
           >
             {"Start Upgrade"}
           </Button>
@@ -268,7 +297,7 @@ const CTAElement = () => {
   `;
 
   return <CallToActionCard className={ctaStyle}
-                           message={"Start the upgrade to Grafana Alerting."}
+                           message={"Start the upgrade to the new Grafana Alerting."}
                            footer={footer}
                            callToActionElement={cta}/>;
 }
@@ -561,7 +590,7 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
               )}
               {contactPair.error && (
                 <Tooltip theme="error" content={contactPair.error}>
-                  <Icon name="exclamation-triangle" className={styles.warningIcon} size={"lg"}/>
+                  <Icon name="exclamation-circle" className={styles.errorIcon} size={"lg"}/>
                 </Tooltip>
               )}
             </Stack>
@@ -573,7 +602,7 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
         id: 'provisioned',
         label: '',
         renderCell: ({ data: contactPair }) => {
-          return contactPair.provisioned ? <ProvisioningBadge /> : null;
+          return contactPair.provisioned ? <Badge color="purple" text={"Provisioned"} className={styles.badge}/> : null;
         },
         size: '100px',
       },
@@ -602,7 +631,7 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
         size: '70px',
       },
     ]
-    ), [styles.textLink, styles.warningIcon, migrateChannel]);
+    ), [styles.textLink, styles.errorIcon, styles.badge, migrateChannel]);
 }
 
 const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => {
@@ -622,7 +651,7 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
         }
         return (
           <Tooltip theme="error" content={error}>
-            <Icon name="exclamation-triangle" className={styles.warningIcon} size={"lg"}/>
+            <Icon name="exclamation-circle" className={styles.errorIcon} size={"lg"}/>
           </Tooltip>
         )
       },
@@ -680,7 +709,7 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
     },
     {
       id: 'new-folder',
-      label: 'New Folder',
+      label: 'New folder',
       renderCell: ({ data: dashUpgrade }) => {
         const migratedFolderUid = dashUpgrade?.newFolderUid;
         if (migratedFolderUid && migratedFolderUid !== dashUpgrade.folderUid && dashUpgrade?.newFolderName) {
@@ -710,14 +739,10 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
       className: styles.tableBadges,
       renderCell: ({ data: dashUpgrade }) => {
         const provisionedWarning = dashUpgrade.warnings.find((warning) => warning.includes('failed to get provisioned status'));
-        const badge = css({
-          width: '100%',
-          justifyContent: 'center',
-        });
         return (
           <>
             {dashUpgrade.provisioned && (
-              <Badge color="purple" text={provisionedWarning ? "Unknown" : "Provisioned"} tooltip={provisionedWarning} icon={provisionedWarning ? "exclamation-triangle" : undefined} className={badge}/>
+              <Badge color="purple" text={provisionedWarning ? "Unknown" : "Provisioned"} tooltip={provisionedWarning} icon={provisionedWarning ? "exclamation-triangle" : undefined} className={styles.badge}/>
             )}
           </>
         )
@@ -725,24 +750,28 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
       size: '100px',
     },
     {
-      id: 'badges',
+      id: 'error-badge',
       label: '',
       className: styles.tableBadges,
       renderCell: ({ data: dashUpgrade }) => {
         const migratedAlerts = dashUpgrade?.migratedAlerts ?? [];
         const nestedErrors = migratedAlerts.map((alertPair) => alertPair.error ?? '').filter((error) => !!error);
-        const badge = css({
-          minWidth: '60px',
-          justifyContent: 'center',
-        });
-        return (
-          <Stack gap={0.5}>
-            {nestedErrors.length > 0 && (<Badge color="red" key="errors" text={`${nestedErrors.length} errors`} tooltip={uniq(nestedErrors).join('\n')} className={badge}/>)}
-            <Badge color="green" key="alerts" text={`${migratedAlerts.length} alerts`} className={badge}/>
-          </Stack>
-        )
+        if (nestedErrors.length === 0) {
+          return null;
+        }
+        return <Badge color="red" key="errors" text={`${nestedErrors.length} errors`} className={styles.badge}/>;
       },
-      size: '142px',
+      size: '90px',
+    },
+    {
+      id: 'alert-count-badge',
+      label: '',
+      className: styles.tableBadges,
+      renderCell: ({ data: dashUpgrade }) => {
+        const migratedAlerts = dashUpgrade?.migratedAlerts ?? [];
+        return <Badge color="green" key="alerts" text={`${migratedAlerts.length} alert rules`} className={styles.badge}/>;
+      },
+      size: '110px',
     },
     {
       id: 'actions',
@@ -763,7 +792,7 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
       },
       size: '70px',
     },
-  ]), [styles.tableBadges, styles.warningIcon, styles.textLink, migrateDashboard]);
+  ]), [styles.tableBadges, styles.errorIcon, styles.textLink, styles.badge, migrateDashboard]);
 }
 
 const ufuzzy = new uFuzzy({
@@ -872,7 +901,7 @@ const AlertTable = ({
   const columns: Array<DynamicTableColumnProps<AlertPair>> = [
     {
       id: 'legacyAlert',
-      label: 'Legacy Alert',
+      label: 'Legacy alert rule',
       renderCell: ({ data: alertPair }) => {
         if (!alertPair?.legacyAlert) {
           return null;
@@ -906,7 +935,7 @@ const AlertTable = ({
     },
     {
       id: 'alertRule',
-      label: 'Alert Rule',
+      label: 'New alert rule',
       renderCell: ({ data: alertPair }) => {
         return (
         <Stack direction={"row"} gap={1}>
@@ -920,7 +949,7 @@ const AlertTable = ({
           )}
           {alertPair.error && (
             <Tooltip theme="error" content={alertPair.error}>
-              <Icon name="exclamation-triangle" className={styles.warningIcon} size={"lg"}/>
+              <Icon name="exclamation-circle" className={styles.errorIcon} size={"lg"}/>
             </Tooltip>
           )}
         </Stack>
@@ -996,7 +1025,7 @@ const ErrorSummaryButton = ({ count, onClick }: ErrorSummaryButtonProps) => {
   return (
     <HorizontalGroup height="auto" justify="flex-start">
       <Tooltip content="Show all errors" placement="top">
-        <Button fill="text" variant="destructive" icon="exclamation-triangle" onClick={onClick}>
+        <Button fill="text" variant="destructive" icon="exclamation-circle" onClick={onClick}>
           {count > 1 ? <>{count} errors</> : <>1 error</>}
         </Button>
       </Tooltip>
@@ -1077,8 +1106,8 @@ export const getStyles = (theme: GrafanaTheme2) => ({
   rulesTable: css`
     margin-top: ${theme.spacing(3)};
   `,
-  warningIcon: css`
-      fill: ${theme.colors.warning.text};
+  errorIcon: css`
+      fill: ${theme.colors.error.text};
   `,
 
   rowWrapper: css``,
@@ -1176,7 +1205,16 @@ export const getStyles = (theme: GrafanaTheme2) => ({
   `,
   tableBadges: css`
     justify-content: flex-end;
-  `
+  `,
+  badge: css`
+    width: 100%;
+    justify-content: center;
+  `,
+
+  separator: css`
+    border-bottom: 1px solid ${theme.colors.border.weak};
+    margin-top: ${theme.spacing(2)};
+  `,
 });
 
 export default UpgradePage;
