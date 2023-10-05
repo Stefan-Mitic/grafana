@@ -136,7 +136,7 @@ func (s *ServiceImpl) GetNavTree(c *contextmodel.ReqContext, prefs *pref.Prefere
 		if legacyAlertSection := s.buildLegacyAlertNavLinks(c); legacyAlertSection != nil {
 			treeRoot.AddSection(legacyAlertSection)
 		}
-		if s.cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUA) && !uaIsDisabledForOrg {
+		if s.cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUpgrade) && !uaIsDisabledForOrg {
 			if alertingSection := s.buildAlertNavLinks(c); alertingSection != nil {
 				treeRoot.AddSection(alertingSection)
 			}
@@ -397,7 +397,7 @@ func (s *ServiceImpl) buildLegacyAlertNavLinks(c *contextmodel.ReqContext) *navt
 		})
 	}
 
-	if s.cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUA) && c.HasRole(org.RoleAdmin) {
+	if s.cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUpgrade) && c.HasRole(org.RoleAdmin) {
 		alertChildNavs = append(alertChildNavs, &navtree.NavLink{
 			Text: "Upgrade Alerting", Id: "alerting-upgrade", Url: s.cfg.AppSubURL + "/alerting-legacy/upgrade",
 			SubTitle: "Upgrade your existing legacy alerts and notification channels to the new Grafana Alerting",

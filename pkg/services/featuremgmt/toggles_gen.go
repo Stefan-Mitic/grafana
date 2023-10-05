@@ -487,7 +487,7 @@ const (
 	// Use the kubernetes API in the frontend for playlists
 	FlagKubernetesPlaylists = "kubernetesPlaylists"
 
-	// FlagAlertingPreviewUA
-	// Show Unified Alerting nav tree and pages in legacy alerting
-	FlagAlertingPreviewUA = "alertingPreviewUA"
+	// FlagAlertingPreviewUpgrade
+	// Show Unified Alerting preview and upgrade page in legacy alerting
+	FlagAlertingPreviewUpgrade = "alertingPreviewUpgrade"
 )

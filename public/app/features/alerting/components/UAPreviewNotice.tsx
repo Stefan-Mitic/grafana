@@ -8,7 +8,7 @@ import { CollapsableAlert } from './CollapsableAlert';
 const LOCAL_STORAGE_KEY = 'grafana.unifiedalerting.upgrade.previewNotice';
 
 export const UAPreviewNotice = () => {
-  if (config.unifiedAlertingEnabled || !config.featureToggles.alertingPreviewUA) {
+  if (config.unifiedAlertingEnabled || !config.featureToggles.alertingPreviewUpgrade) {
     return null;
   }
 

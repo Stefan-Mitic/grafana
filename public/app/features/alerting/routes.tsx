@@ -299,7 +299,7 @@ export function getAlertingRoutes(cfg = config): RouteDescriptor[] {
   if (cfg.unifiedAlertingEnabled) {
     return unifiedRoutes;
   } else if (cfg.alertingEnabled) {
-    if (config.featureToggles.alertingPreviewUA) {
+    if (config.featureToggles.alertingPreviewUpgrade) {
       // If preview is enabled, return both legacy and unified routes.
       return [...legacyRoutes, ...unifiedRoutes];
     }
