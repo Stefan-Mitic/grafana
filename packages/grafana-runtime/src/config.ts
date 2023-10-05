@@ -11,7 +11,6 @@ import {
   GrafanaTheme2,
   LicenseInfo,
   MapLayerOptions,
-  NavModelItem,
   OAuthSettings,
   PanelPluginMeta,
   systemDateFormats,
@@ -200,11 +199,6 @@ export class GrafanaBootConfig implements GrafanaConfig {
       this.angularSupportEnabled = false;
     }
 
-    if (!this.unifiedAlertingEnabled && !this.featureToggles.alertingPreviewUA) {
-      // So that if the feature flag is disable dynamically, the navbar doesn't contain UA section.
-      this.bootData.navTree = removeSectionFromNavTree(this.bootData.navTree, 'alerting');
-    }
-
     // Creating theme after applying feature toggle overrides in case we need to toggle anything
     this.theme2 = getThemeById(this.bootData.user.theme);
     this.bootData.user.lightTheme = this.theme2.isLight;
@@ -247,19 +241,6 @@ function overrideFeatureTogglesFromUrl(config: GrafanaBootConfig) {
       }
     }
   });
-}
-
-// Remove section with the given id from nav tree.
-function removeSectionFromNavTree(navTree: NavModelItem[], id: string): NavModelItem[] {
-  return navTree.filter(function f(o) {
-    if (o.id === id) {
-      return false
-    }
-    if (o.children) {
-      o.children = o.children.filter(f)
-    }
-    return true
-  })
 }
 
 const bootData = (window as any).grafanaBootData || {
