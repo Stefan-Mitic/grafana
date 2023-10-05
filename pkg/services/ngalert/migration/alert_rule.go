@@ -21,10 +21,6 @@ const (
 	// ContactLabelTemplate is a private label added to a rule's labels to route it to the correct migrated
 	// notification channel.
 	ContactLabelTemplate = "__contacts_%s__"
-
-	// UseLegacyChannelsLabel is a private label added to a rule's labels to enable routing to the nested route created
-	// during migration.
-	UseLegacyChannelsLabel = "__use_legacy_channels__"
 )
 
 func addMigrationInfo(l log.Logger, alert *legacymodels.Alert, dashboardUID string, channels []string) (map[string]string, map[string]string) {
@@ -36,7 +32,7 @@ func addMigrationInfo(l log.Logger, alert *legacymodels.Alert, dashboardUID stri
 	}
 
 	// Add a label for routing
-	lbls[UseLegacyChannelsLabel] = "true"
+	lbls[migmodels.UseLegacyChannelsLabel] = "true"
 	for _, c := range channels {
 		lbls[fmt.Sprintf(ContactLabelTemplate, c)] = "true"
 	}

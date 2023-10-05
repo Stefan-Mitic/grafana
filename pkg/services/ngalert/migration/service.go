@@ -75,14 +75,14 @@ func (ms *MigrationService) MigrateChannel(ctx context.Context, orgID int64, cha
 			return fmt.Errorf("get alertmanager config: %w", err)
 		}
 
-		amConfig := FromPostableUserConfig(cfg)
+		amConfig := migmodels.FromPostableUserConfig(cfg)
 		if skipExisting {
 			existing := om.state.PopContactPair(channelID)
 			if existing != nil {
 				return fmt.Errorf("notification channel already migrated")
 			}
 		} else {
-			amConfig.cleanupReceiversAndRoutes(om.state.PopContactPair(channelID))
+			amConfig.CleanupReceiversAndRoutes(om.state.PopContactPair(channelID))
 		}
 
 		channel, err := om.migrationStore.GetNotificationChannel(ctx, orgID, channelID)

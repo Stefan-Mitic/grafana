@@ -184,11 +184,11 @@ func (om *OrgMigration) migrateOrgChannels(ctx context.Context, skipExisting boo
 		return summary, fmt.Errorf("get alertmanager config: %w", err)
 	}
 
-	amConfig := FromPostableUserConfig(cfg)
+	amConfig := migmodels.FromPostableUserConfig(cfg)
 	if skipExisting {
 		channels = om.state.ExcludeExisting(channels...)
 	} else {
-		amConfig.cleanupReceiversAndRoutes(om.state.MigratedChannels...)
+		amConfig.CleanupReceiversAndRoutes(om.state.MigratedChannels...)
 	}
 	pairs, err := om.migrateAndSaveChannels(ctx, channels, amConfig)
 	if err != nil {
@@ -198,21 +198,23 @@ func (om *OrgMigration) migrateOrgChannels(ctx context.Context, skipExisting boo
 	return summary, nil
 }
 
-func (om *OrgMigration) migrateAndSaveChannels(ctx context.Context, channels []*legacymodels.AlertNotification, amConfig *MigratedAlertmanagerConfig) ([]*migmodels.ContactPair, error) {
+func (om *OrgMigration) migrateAndSaveChannels(ctx context.Context, channels []*legacymodels.AlertNotification, amConfig *migmodels.Alertmanager) ([]*migmodels.ContactPair, error) {
 	pairs, err := om.migrateChannels(amConfig, channels)
 	if err != nil {
 		return nil, err
 	}
 	om.state.MigratedChannels = append(om.state.MigratedChannels, pairs...)
 
+	config := amConfig.CleanConfig()
+
 	// Validate the alertmanager configuration produced, this gives a chance to catch bad configuration at migration time.
 	// Validation between legacy and unified alerting can be different (e.g. due to bug fixes) so this would fail the migration in that case.
-	if err := om.validateAlertmanagerConfig(amConfig.PostableUserConfig); err != nil {
+	if err := om.validateAlertmanagerConfig(config); err != nil {
 		return nil, fmt.Errorf("validate AlertmanagerConfig: %w", err)
 	}
 
-	om.log.Info("Writing alertmanager config", "receivers", len(amConfig.AlertmanagerConfig.Receivers), "routes", len(amConfig.AlertmanagerConfig.Route.Routes))
-	if err := om.migrationStore.SaveAlertmanagerConfiguration(ctx, om.orgID, amConfig.PostableUserConfig); err != nil {
+	om.log.Info("Writing alertmanager config", "receivers", len(config.AlertmanagerConfig.Receivers), "routes", len(config.AlertmanagerConfig.Route.Routes))
+	if err := om.migrationStore.SaveAlertmanagerConfiguration(ctx, om.orgID, config); err != nil {
 		return nil, fmt.Errorf("write AlertmanagerConfig: %w", err)
 	}
 

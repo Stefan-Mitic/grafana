@@ -23,6 +23,7 @@ import (
 	"github.com/grafana/grafana/pkg/services/dashboards"
 	"github.com/grafana/grafana/pkg/services/datasources"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
+	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	ngModels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
 	"github.com/grafana/grafana/pkg/services/org"
@@ -155,7 +156,7 @@ func TestAMConfigMigration(t *testing.T) {
 							GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
 							Routes: []*apimodels.Route{
 								{
-									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
+									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: migmodels.UseLegacyChannelsLabel, Value: "true"}},
 									Continue:       true,
 									Routes: []*apimodels.Route{
 										{Receiver: "notifier1", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: fmt.Sprintf(ContactLabelTemplate, "notifier1"), Value: "true"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
@@ -180,7 +181,7 @@ func TestAMConfigMigration(t *testing.T) {
 							GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
 							Routes: []*apimodels.Route{
 								{
-									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
+									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: migmodels.UseLegacyChannelsLabel, Value: "true"}},
 									Continue:       true,
 									Routes: []*apimodels.Route{
 										{Receiver: "notifier6", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchRegexp, Name: model.AlertNameLabel, Value: ".+"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
@@ -214,7 +215,7 @@ func TestAMConfigMigration(t *testing.T) {
 							GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
 							Routes: []*apimodels.Route{
 								{
-									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
+									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: migmodels.UseLegacyChannelsLabel, Value: "true"}},
 									Continue:       true,
 									Routes: []*apimodels.Route{
 										{Receiver: "notifier1", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: fmt.Sprintf(ContactLabelTemplate, "notifier1"), Value: "true"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
@@ -245,7 +246,7 @@ func TestAMConfigMigration(t *testing.T) {
 							GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
 							Routes: []*apimodels.Route{
 								{
-									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
+									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: migmodels.UseLegacyChannelsLabel, Value: "true"}},
 									Continue:       true,
 									Routes: []*apimodels.Route{
 										{Receiver: "notifier1", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchRegexp, Name: model.AlertNameLabel, Value: ".+"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
@@ -281,7 +282,7 @@ func TestAMConfigMigration(t *testing.T) {
 							GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
 							Routes: []*apimodels.Route{
 								{
-									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
+									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: migmodels.UseLegacyChannelsLabel, Value: "true"}},
 									Continue:       true,
 									Routes: []*apimodels.Route{
 										{Receiver: "notifier1", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: fmt.Sprintf(ContactLabelTemplate, "notifier1"), Value: "true"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
@@ -313,7 +314,7 @@ func TestAMConfigMigration(t *testing.T) {
 							GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
 							Routes: []*apimodels.Route{
 								{
-									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
+									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: migmodels.UseLegacyChannelsLabel, Value: "true"}},
 									Continue:       true,
 									Routes: []*apimodels.Route{
 										{Receiver: "notifier1", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: fmt.Sprintf(ContactLabelTemplate, "notifier1"), Value: "true"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
@@ -405,7 +406,7 @@ func TestDashAlertMigration(t *testing.T) {
 	service := NewTestMigrationService(t, sqlStore, &setting.Cfg{})
 
 	withDefaults := func(lbls map[string]string) map[string]string {
-		lbls[UseLegacyChannelsLabel] = "true"
+		lbls[migmodels.UseLegacyChannelsLabel] = "true"
 		return lbls
 	}
 
@@ -610,7 +611,7 @@ func TestDashAlertQueryMigration(t *testing.T) {
 			Annotations: map[string]string{
 				"message": "message",
 			},
-			Labels:   map[string]string{UseLegacyChannelsLabel: "true"},
+			Labels:   map[string]string{migmodels.UseLegacyChannelsLabel: "true"},
 			IsPaused: false,
 		}
 

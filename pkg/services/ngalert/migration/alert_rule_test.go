@@ -105,7 +105,7 @@ func TestAddMigrationInfo(t *testing.T) {
 				"alertRuleTags": []string{"one", "two", "three", "four"},
 			})},
 			dashboard:           "dashboard",
-			expectedLabels:      map[string]string{UseLegacyChannelsLabel: "true"},
+			expectedLabels:      map[string]string{migmodels.UseLegacyChannelsLabel: "true"},
 			expectedAnnotations: map[string]string{"__alertId__": "43", "__dashboardUid__": "dashboard", "__panelId__": "42", "message": "message"},
 		},
 		{
@@ -113,7 +113,7 @@ func TestAddMigrationInfo(t *testing.T) {
 			alert: &legacymodels.Alert{ID: 43, PanelID: 42, Message: "message", Settings: simplejson.NewFromAny(map[string]interface{}{
 				"alertRuleTags": map[string]interface{}{"key": "value", "key2": "value2"},
 			})}, dashboard: "dashboard",
-			expectedLabels:      map[string]string{UseLegacyChannelsLabel: "true", "key": "value", "key2": "value2"},
+			expectedLabels:      map[string]string{migmodels.UseLegacyChannelsLabel: "true", "key": "value", "key2": "value2"},
 			expectedAnnotations: map[string]string{"__alertId__": "43", "__dashboardUid__": "dashboard", "__panelId__": "42", "message": "message"},
 		},
 	}

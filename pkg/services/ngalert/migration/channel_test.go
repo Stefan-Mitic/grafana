@@ -19,6 +19,7 @@ import (
 	"github.com/grafana/grafana/pkg/infra/db"
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
+	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	ngModels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/notifier/channels_config"
@@ -349,7 +350,7 @@ func TestSetupAlertmanagerConfig(t *testing.T) {
 						GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
 						Routes: []*apimodels.Route{
 							{
-								ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
+								ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: migmodels.UseLegacyChannelsLabel, Value: "true"}},
 								Continue:       true,
 								Routes: []*apimodels.Route{
 									{Receiver: "notifier1", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: fmt.Sprintf(ContactLabelTemplate, "uid1"), Value: "true"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
@@ -376,7 +377,7 @@ func TestSetupAlertmanagerConfig(t *testing.T) {
 						GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
 						Routes: []*apimodels.Route{
 							{
-								ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
+								ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: migmodels.UseLegacyChannelsLabel, Value: "true"}},
 								Continue:       true,
 								Routes: []*apimodels.Route{
 									{Receiver: "notifier2", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchRegexp, Name: model.AlertNameLabel, Value: ".+"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
@@ -403,7 +404,7 @@ func TestSetupAlertmanagerConfig(t *testing.T) {
 						GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
 						Routes: []*apimodels.Route{
 							{
-								ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
+								ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: migmodels.UseLegacyChannelsLabel, Value: "true"}},
 								Continue:       true,
 								Routes: []*apimodels.Route{
 									{Receiver: "notifier1", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: fmt.Sprintf(ContactLabelTemplate, "uid1"), Value: "true"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(42)},
@@ -427,8 +428,8 @@ func TestSetupAlertmanagerConfig(t *testing.T) {
 
 			m := newTestOrgMigration(t, 1)
 			m.migrationStore = migrationStore.NewTestMigrationStore(t, sqlStore, nil)
-			amConfig, _ := createBaseConfig()
-			_, err := m.migrateChannels(FromPostableUserConfig(amConfig), tt.channels)
+			am := migmodels.FromPostableUserConfig(nil)
+			_, err := m.migrateChannels(am, tt.channels)
 			if tt.expErr != nil {
 				require.Error(t, err)
 				require.EqualError(t, err, tt.expErr.Error())
@@ -436,6 +437,7 @@ func TestSetupAlertmanagerConfig(t *testing.T) {
 			}
 			require.NoError(t, err)
 
+			amConfig := am.CleanConfig()
 			opts := []cmp.Option{
 				cmpopts.IgnoreUnexported(apimodels.PostableUserConfig{}, labels.Matcher{}),
 				cmpopts.SortSlices(func(a, b *apimodels.Route) bool { return a.Receiver < b.Receiver }),

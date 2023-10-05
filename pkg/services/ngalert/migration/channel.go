@@ -15,7 +15,6 @@ import (
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
 	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
-	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/secrets"
 )
 
@@ -25,7 +24,7 @@ const (
 )
 
 // migrateChannels creates Alertmanager configs with migrated receivers and routes.
-func (om *OrgMigration) migrateChannels(amConfig *MigratedAlertmanagerConfig, channels []*legacymodels.AlertNotification) ([]*migmodels.ContactPair, error) {
+func (om *OrgMigration) migrateChannels(amConfig *migmodels.Alertmanager, channels []*legacymodels.AlertNotification) ([]*migmodels.ContactPair, error) {
 	// Create all newly migrated receivers from legacy notification channels.
 	pairs := make([]*migmodels.ContactPair, 0, len(channels))
 	for _, c := range channels {
@@ -37,28 +36,12 @@ func (om *OrgMigration) migrateChannels(amConfig *MigratedAlertmanagerConfig, ch
 		}
 
 		route := createRoute(c, receiver.Name)
-		amConfig.legacyRoute.Routes = append(amConfig.legacyRoute.Routes, route)
-		amConfig.AlertmanagerConfig.Receivers = append(amConfig.AlertmanagerConfig.Receivers, receiver)
+		amConfig.AddRoute(route)
+		amConfig.AddReceiver(receiver)
 		pairs = append(pairs, newContactPair(c, receiver, route, nil))
 	}
 
 	return pairs, nil
-}
-
-func getOrCreateNestedLegacyRoute(config *apimodels.PostableUserConfig) *apimodels.Route {
-	for _, r := range config.AlertmanagerConfig.Route.Routes {
-		if isNestedLegacyRoute(r) {
-			return r
-		}
-	}
-	nestedLegacyChannelRoute := createNestedLegacyRoute()
-	// Add new nested route as the first of the top-level routes.
-	config.AlertmanagerConfig.Route.Routes = append([]*apimodels.Route{nestedLegacyChannelRoute}, config.AlertmanagerConfig.Route.Routes...)
-	return nestedLegacyChannelRoute
-}
-
-func isNestedLegacyRoute(r *apimodels.Route) bool {
-	return len(r.ObjectMatchers) == 1 && r.ObjectMatchers[0].Name == UseLegacyChannelsLabel
 }
 
 // validateAlertmanagerConfig validates the alertmanager configuration produced by the migration against the receivers.
@@ -133,50 +116,6 @@ func (om *OrgMigration) createReceiver(channel *legacymodels.AlertNotification) 
 			GrafanaManagedReceivers: []*apimodels.PostableGrafanaReceiver{notifier},
 		},
 	}, nil
-}
-
-// createBaseConfig creates an alertmanager config with the root-level route, default receiver, and nested route
-// for migrated channels.
-func createBaseConfig() (*apimodels.PostableUserConfig, *apimodels.Route) {
-	defaultRoute, nestedRoute := createDefaultRoute()
-	return &apimodels.PostableUserConfig{
-		AlertmanagerConfig: apimodels.PostableApiAlertingConfig{
-			Receivers: []*apimodels.PostableApiReceiver{
-				{
-					Receiver: config.Receiver{
-						Name: "autogen-contact-point-default",
-					},
-					PostableGrafanaReceivers: apimodels.PostableGrafanaReceivers{
-						GrafanaManagedReceivers: []*apimodels.PostableGrafanaReceiver{},
-					},
-				},
-			},
-			Config: apimodels.Config{
-				Route: defaultRoute,
-			},
-		},
-	}, nestedRoute
-}
-
-// createDefaultRoute creates a default root-level route and associated nested route that will contain all the migrated channels.
-func createDefaultRoute() (*apimodels.Route, *apimodels.Route) {
-	nestedRoute := createNestedLegacyRoute()
-	return &apimodels.Route{
-		Receiver:       "autogen-contact-point-default",
-		Routes:         []*apimodels.Route{nestedRoute},
-		GroupByStr:     []string{ngmodels.FolderTitleLabel, model.AlertNameLabel}, // To keep parity with pre-migration notifications.
-		RepeatInterval: nil,
-	}, nestedRoute
-}
-
-// createNestedLegacyRoute creates a nested route that will contain all the migrated channels.
-// This route is matched on the UseLegacyChannelsLabel and mostly exists to keep the migrated channels separate and organized.
-func createNestedLegacyRoute() *apimodels.Route {
-	mat, _ := labels.NewMatcher(labels.MatchEqual, UseLegacyChannelsLabel, "true")
-	return &apimodels.Route{
-		ObjectMatchers: apimodels.ObjectMatchers{mat},
-		Continue:       true,
-	}
 }
 
 // createRoute creates a route from a legacy notification channel, and matches using a label based on the channel UID.

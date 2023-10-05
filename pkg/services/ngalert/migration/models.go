@@ -70,68 +70,6 @@ func newContactPair(channel *legacymodels.AlertNotification, contactPoint *apiMo
 	return pair
 }
 
-type MigratedAlertmanagerConfig struct {
-	*apiModels.PostableUserConfig
-	legacyRoute *apiModels.Route
-}
-
-func (mac *MigratedAlertmanagerConfig) cleanupReceiversAndRoutes(pairs ...*migmodels.ContactPair) {
-	// Find all previously migrated ContactPairs for these channels.
-	upgradesToReplace := make(map[string]*migmodels.ContactPointUpgrade)
-	for _, pair := range pairs {
-		if pair.ContactPointUpgrade != nil && pair.ContactPointUpgrade.Name != "" {
-			upgradesToReplace[pair.ContactPointUpgrade.Name] = pair.ContactPointUpgrade
-		}
-	}
-
-	// Remove receivers for channels that are being replaced.
-	var keptReceivers []*apiModels.PostableApiReceiver
-	for _, recv := range mac.AlertmanagerConfig.Receivers {
-		if _, ok := upgradesToReplace[recv.Name]; !ok {
-			keptReceivers = append(keptReceivers, recv)
-		} else {
-			// Don't keep receiver and remove all nested routes that reference it.
-			// This will fail validation if the user has created other routes that reference this receiver.
-			// In that case, they must manually delete the added routes.
-			mac.removeRoutesForReceiver(recv.Name)
-		}
-	}
-	mac.AlertmanagerConfig.Receivers = keptReceivers
-}
-
-func (mac *MigratedAlertmanagerConfig) removeRoutesForReceiver(recv string) {
-	var keptRoutes []*apiModels.Route
-	for i, route := range mac.legacyRoute.Routes {
-		if route.Receiver != recv {
-			keptRoutes = append(keptRoutes, mac.legacyRoute.Routes[i])
-		}
-	}
-	mac.legacyRoute.Routes = keptRoutes
-}
-
-func FromPostableUserConfig(config *apiModels.PostableUserConfig) *MigratedAlertmanagerConfig {
-	if config == nil {
-		// No existing amConfig created from a previous migration.
-		c, r := createBaseConfig()
-		return &MigratedAlertmanagerConfig{
-			PostableUserConfig: c,
-			legacyRoute:        r,
-		}
-	} else if config.AlertmanagerConfig.Route == nil {
-		// No existing base route created from a previous migration.
-		defaultRoute, nestedLegacyChannelRoute := createDefaultRoute()
-		config.AlertmanagerConfig.Route = defaultRoute
-		return &MigratedAlertmanagerConfig{
-			PostableUserConfig: config,
-			legacyRoute:        nestedLegacyChannelRoute,
-		}
-	}
-	return &MigratedAlertmanagerConfig{
-		PostableUserConfig: config,
-		legacyRoute:        getOrCreateNestedLegacyRoute(config),
-	}
-}
-
 // Deduplicator is a wrapper around map[string]struct{} and util.GenerateShortUID() which aims help maintain and generate
 // unique strings (such as uids or titles). if caseInsensitive is true, all uniqueness is determined in a
 // case-insensitive manner. if maxLen is greater than 0, all strings will be truncated to maxLen before being checked in
