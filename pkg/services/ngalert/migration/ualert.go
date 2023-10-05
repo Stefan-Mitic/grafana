@@ -40,7 +40,7 @@ func (om *OrgMigration) migrateAndSaveAlerts(ctx context.Context, alerts []*lega
 
 		alertRule, err := om.migrateAlert(ctx, al, da, info)
 		if err != nil {
-			al.Warn("failed to migrate alert", "error", err)
+			al.Warn("Failed to migrate alert", "error", err)
 			pair := newAlertPair(da)
 			pair.Error = err.Error()
 			pairs = append(pairs, pair)
@@ -49,7 +49,7 @@ func (om *OrgMigration) migrateAndSaveAlerts(ctx context.Context, alerts []*lega
 
 		if dedupSet.contains(alertRule.Title) {
 			dedupedName := dedupSet.deduplicate(alertRule.Title)
-			al.Warn("duplicate alert rule name detected, renaming", "old_name", alertRule.Title, "new_name", dedupedName)
+			al.Debug("Duplicate alert rule name detected, renaming", "old_name", alertRule.Title, "new_name", dedupedName)
 			alertRule.Title = dedupedName
 		}
 		dedupSet.add(alertRule.Title)
@@ -62,7 +62,7 @@ func (om *OrgMigration) migrateAndSaveAlerts(ctx context.Context, alerts []*lega
 	}
 
 	if len(rules) > 0 {
-		log.Info("Inserting migrated alert rules", "count", alertCnt, "provisioned", info.Provisioned)
+		log.Debug("Inserting migrated alert rules", "count", alertCnt, "provisioned", info.Provisioned)
 		for _, pair := range pairs {
 			if pair.AlertRule != nil {
 				// We insert one by one so that we can catch duplicate constraint errors on the alert rule title and fix them.
@@ -72,7 +72,7 @@ func (om *OrgMigration) migrateAndSaveAlerts(ctx context.Context, alerts []*lega
 						// Retry with a deduplicated title.
 						rule := pair.GetAlertRule()
 						dedupedName := dedupSet.deduplicate(rule.Title)
-						log.Warn("duplicate alert rule name detected, renaming", "old_name", rule.Title, "new_name", dedupedName)
+						log.Debug("Duplicate alert rule name detected, renaming", "old_name", rule.Title, "new_name", dedupedName)
 						rule.Title = dedupedName
 						pair.AttachAlertRule(rule)
 						err := om.migrationStore.InsertAlertRules(ctx, rule)
@@ -80,7 +80,7 @@ func (om *OrgMigration) migrateAndSaveAlerts(ctx context.Context, alerts []*lega
 							continue
 						}
 					}
-					return nil, fmt.Errorf("failed to insert alert rules: %w", err)
+					return nil, fmt.Errorf("insert alert rules: %w", err)
 				}
 			}
 		}
@@ -144,16 +144,18 @@ func (om *OrgMigration) migrateAndSaveDashboard(ctx context.Context, dashID int6
 }
 
 func (om *OrgMigration) migrateOrg(ctx context.Context, skipExisting bool) (migmodels.OrgMigrationSummary, error) {
-	om.log.Info("migrating alerts for organisation")
+	om.log.Info("Migrating alerts for organisation")
 
 	summary, err := om.migrateOrgAlerts(ctx, skipExisting)
 	if err != nil {
-		om.state.AddError(err.Error())
+		om.log.Warn("Failed to migrate alerts", "error", err)
+		om.state.AddError(fmt.Errorf("migrate alerts: %w", err).Error())
 	}
 
 	channelSummary, err := om.migrateOrgChannels(ctx, skipExisting)
 	if err != nil {
-		om.state.AddError(err.Error())
+		om.log.Warn("Failed to migrate channels", "error", err)
+		om.state.AddError(fmt.Errorf("migrate channels: %w", err).Error())
 	}
 
 	summary.Add(channelSummary)
@@ -164,7 +166,7 @@ func (om *OrgMigration) migrateOrgAlerts(ctx context.Context, skipExisting bool)
 	summary := migmodels.OrgMigrationSummary{}
 	mappedAlerts, cnt, err := om.migrationStore.GetOrgDashboardAlerts(ctx, om.orgID)
 	if err != nil {
-		return summary, fmt.Errorf("failed to load alerts: %w", err)
+		return summary, fmt.Errorf("load alerts: %w", err)
 	}
 	om.log.Info("Alerts found to migrate", "alerts", cnt)
 
@@ -188,7 +190,7 @@ func (om *OrgMigration) migrateOrgChannels(ctx context.Context, skipExisting boo
 	}
 	cfg, err := om.migrationStore.GetAlertmanagerConfig(ctx, om.orgID)
 	if err != nil {
-		return summary, fmt.Errorf("failed to get alertmanager config: %w", err)
+		return summary, fmt.Errorf("get alertmanager config: %w", err)
 	}
 
 	amConfig := FromPostableUserConfig(cfg)
@@ -208,7 +210,7 @@ func (om *OrgMigration) migrateOrgChannels(ctx context.Context, skipExisting boo
 func (om *OrgMigration) migrateAndSaveChannels(ctx context.Context, channels []*legacymodels.AlertNotification, amConfig *MigratedAlertmanagerConfig) ([]*migmodels.ContactPair, error) {
 	pairs, err := om.migrateChannels(amConfig, channels)
 	if err != nil {
-		return nil, fmt.Errorf("migrateChannels: %w", err)
+		return nil, err
 	}
 	om.state.MigratedChannels = append(om.state.MigratedChannels, pairs...)
 
@@ -218,7 +220,7 @@ func (om *OrgMigration) migrateAndSaveChannels(ctx context.Context, channels []*
 		return nil, fmt.Errorf("validate AlertmanagerConfig: %w", err)
 	}
 
-	om.log.Info("Writing alertmanager config", "orgID", om.orgID, "receivers", len(amConfig.AlertmanagerConfig.Receivers), "routes", len(amConfig.AlertmanagerConfig.Route.Routes))
+	om.log.Info("Writing alertmanager config", "receivers", len(amConfig.AlertmanagerConfig.Receivers), "routes", len(amConfig.AlertmanagerConfig.Route.Routes))
 	if err := om.migrationStore.SaveAlertmanagerConfiguration(ctx, om.orgID, amConfig.PostableUserConfig); err != nil {
 		return nil, fmt.Errorf("write AlertmanagerConfig: %w", err)
 	}

@@ -30,7 +30,7 @@ const (
 func createErrorSilence(rule *models.AlertRule) (*pb.MeshSilence, error) {
 	uid, err := uuid.NewRandom()
 	if err != nil {
-		return nil, errors.New("failed to create uuid for silence")
+		return nil, errors.New("create uuid for silence")
 	}
 
 	s := &pb.MeshSilence{
@@ -62,7 +62,7 @@ func createErrorSilence(rule *models.AlertRule) (*pb.MeshSilence, error) {
 func createNoDataSilence(rule *models.AlertRule) (*pb.MeshSilence, error) {
 	uid, err := uuid.NewRandom()
 	if err != nil {
-		return nil, errors.New("failed to create uuid for silence")
+		return nil, errors.New("create uuid for silence")
 	}
 
 	s := &pb.MeshSilence{

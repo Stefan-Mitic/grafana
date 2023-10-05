@@ -117,7 +117,7 @@ func (om *OrgMigration) createNotifier(c *legacymodels.AlertNotification) (*apim
 // createReceiver creates a receiver from a legacy notification channel.
 func (om *OrgMigration) createReceiver(channel *legacymodels.AlertNotification) (*apimodels.PostableApiReceiver, error) {
 	if channel.Type == "hipchat" || channel.Type == "sensu" {
-		return nil, fmt.Errorf("%s is a discontinued", channel.Type)
+		return nil, fmt.Errorf("%s is discontinued", channel.Type)
 	}
 
 	notifier, err := om.createNotifier(channel)
@@ -266,7 +266,7 @@ func (om *OrgMigration) encryptSecureSettings(secureSettings map[string]string) 
 	for key, value := range secureSettings {
 		encryptedData, err := om.encryptionService.Encrypt(context.Background(), []byte(value), secrets.WithoutScope())
 		if err != nil {
-			return fmt.Errorf("failed to encrypt secure settings: %w", err)
+			return fmt.Errorf("encrypt secure settings: %w", err)
 		}
 		secureSettings[key] = base64.StdEncoding.EncodeToString(encryptedData)
 	}

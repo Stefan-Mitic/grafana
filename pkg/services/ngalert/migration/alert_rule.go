@@ -63,7 +63,7 @@ func createSilences(l log.Logger, alert *legacymodels.Alert, ar *ngmodels.AlertR
 	var silences []*silencepb.MeshSilence
 	if execErrState == "keep_state" {
 		if s, err := createErrorSilence(ar); err != nil {
-			l.Error("alert migration error: failed to create silence for Error", "rule_name", ar.Title, "err", err)
+			l.Error("Failed to create silence for Error", "err", err)
 		} else {
 			silences = append(silences, s)
 		}
@@ -71,7 +71,7 @@ func createSilences(l log.Logger, alert *legacymodels.Alert, ar *ngmodels.AlertR
 
 	if noDataState == "keep_state" {
 		if s, err := createNoDataSilence(ar); err != nil {
-			l.Error("alert migration error: failed to create silence for NoData", "rule_name", ar.Title, "err", err)
+			l.Error("Failed to create silence for NoData", "err", err)
 		} else {
 			silences = append(silences, s)
 		}
@@ -91,7 +91,7 @@ func (om *OrgMigration) cleanupDashboardAlerts(ctx context.Context, du *migmodel
 		if len(ruleUids) > 0 {
 			err := om.migrationStore.DeleteAlertRules(ctx, om.orgID, ruleUids...)
 			if err != nil {
-				return fmt.Errorf("failed to delete existing alert rules: %w", err)
+				return fmt.Errorf("delete existing alert rules: %w", err)
 			}
 		}
 
@@ -110,7 +110,7 @@ func (om *OrgMigration) cleanupDashboardAlerts(ctx context.Context, du *migmodel
 			if found {
 				err := om.folderHelper.migrationStore.DeleteFolders(ctx, om.orgID, du.NewFolderUID)
 				if err != nil {
-					return fmt.Errorf("failed to delete folder '%s': %w", du.NewFolderName, err)
+					return fmt.Errorf("delete folder '%s': %w", du.NewFolderName, err)
 				}
 			}
 		}
@@ -120,26 +120,26 @@ func (om *OrgMigration) cleanupDashboardAlerts(ctx context.Context, du *migmodel
 
 // MigrateAlert migrates a single dashboard alert from legacy alerting to unified alerting.
 func (om *OrgMigration) migrateAlert(ctx context.Context, l log.Logger, alert *legacymodels.Alert, info migmodels.DashboardUpgradeInfo) (*ngmodels.AlertRule, error) {
-	l.Debug("migrating alert rule to Unified Alerting")
+	l.Debug("Migrating alert rule to Unified Alerting")
 	rawSettings, err := json.Marshal(alert.Settings)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get settings: %w", err)
+		return nil, fmt.Errorf("get settings: %w", err)
 	}
 	var parsedSettings dashAlertSettings
 	err = json.Unmarshal(rawSettings, &parsedSettings)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse settings: %w", err)
+		return nil, fmt.Errorf("parse settings: %w", err)
 	}
 	newCond, err := transConditions(ctx, parsedSettings, alert.OrgID, om.migrationStore)
 	if err != nil {
-		return nil, fmt.Errorf("failed to transform conditions: %w", err)
+		return nil, fmt.Errorf("transform conditions: %w", err)
 	}
 
 	channels := om.extractChannelUIDs(ctx, l, alert.OrgID, parsedSettings)
 
 	rule, err := makeAlertRule(l, *newCond, alert, info, channels)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make alert rule: %w", err)
+		return nil, fmt.Errorf("make alert rule: %w", err)
 	}
 
 	return rule, nil
@@ -152,7 +152,7 @@ func makeAlertRule(l log.Logger, cond condition, alert *legacymodels.Alert, info
 
 	data, err := migrateAlertRuleQueries(l, cond.Data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to migrate alert rule queries: %w", err)
+		return nil, fmt.Errorf("queries: %w", err)
 	}
 
 	isPaused := false
@@ -288,7 +288,7 @@ func isPrometheusQuery(queryData map[string]json.RawMessage) (bool, error) {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(ds, &datasource); err != nil {
-		return false, fmt.Errorf("failed to parse datasource '%s': %w", string(ds), err)
+		return false, fmt.Errorf("parse datasource '%s': %w", string(ds), err)
 	}
 	if datasource.Type == "" {
 		return false, fmt.Errorf("missing type field '%s'", string(ds))
@@ -354,7 +354,7 @@ func (om *OrgMigration) extractChannelUIDs(ctx context.Context, l log.Logger, or
 		if ui.ID > 0 {
 			uid, err := om.migrationStore.GetAlertNotificationUidWithId(ctx, orgID, ui.ID)
 			if err != nil {
-				l.Error("failed to get alert notification UID", "notificationId", ui.ID, "err", err)
+				l.Error("Failed to get alert notification UID", "notificationId", ui.ID, "err", err)
 			}
 			channelUids = append(channelUids, uid)
 		} else if ui.UID != "" {

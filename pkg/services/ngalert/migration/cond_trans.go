@@ -307,7 +307,7 @@ func getNewRefID(refIDs map[string][]int) (string, error) {
 		}
 		return sR, nil
 	}
-	return "", fmt.Errorf("failed to generate unique RefID")
+	return "", fmt.Errorf("generate unique RefID")
 }
 
 // getRelativeDuration turns the alerting durations for dashboard conditions

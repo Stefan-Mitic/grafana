@@ -69,7 +69,7 @@ func (ms *MigrationService) MigrateChannel(ctx context.Context, orgID int64, cha
 		om := ms.newOrgMigration(orgID)
 		state, err := om.migrationStore.GetOrgMigrationState(ctx, orgID)
 		if err != nil {
-			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+			return fmt.Errorf("get org migration summary: %w", err)
 		}
 		om.state = state
 
@@ -127,7 +127,7 @@ func (ms *MigrationService) MigrateAllChannels(ctx context.Context, orgID int64,
 		om := ms.newOrgMigration(orgID)
 		state, err := om.migrationStore.GetOrgMigrationState(ctx, orgID)
 		if err != nil {
-			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+			return fmt.Errorf("get org migration summary: %w", err)
 		}
 		om.state = state
 
@@ -160,7 +160,7 @@ func (ms *MigrationService) MigrateAlert(ctx context.Context, orgID int64, dashb
 		om := ms.newOrgMigration(orgID)
 		state, err := om.migrationStore.GetOrgMigrationState(ctx, orgID)
 		if err != nil {
-			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+			return fmt.Errorf("get org migration summary: %w", err)
 		}
 		om.state = state
 
@@ -236,13 +236,13 @@ func (ms *MigrationService) MigrateDashboardAlerts(ctx context.Context, orgID in
 		om := ms.newOrgMigration(orgID)
 		state, err := om.migrationStore.GetOrgMigrationState(ctx, orgID)
 		if err != nil {
-			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+			return fmt.Errorf("get org migration summary: %w", err)
 		}
 		om.state = state
 
 		alerts, err := ms.migrationStore.GetDashboardAlerts(ctx, orgID, dashboardID)
 		if err != nil {
-			return fmt.Errorf("failed to get alerts: %w", err)
+			return fmt.Errorf("get alerts: %w", err)
 		}
 
 		du, sum, err := om.migrateAndSaveDashboard(ctx, dashboardID, alerts, skipExisting)
@@ -277,7 +277,7 @@ func (ms *MigrationService) MigrateAllDashboardAlerts(ctx context.Context, orgID
 		om := ms.newOrgMigration(orgID)
 		state, err := om.migrationStore.GetOrgMigrationState(ctx, orgID)
 		if err != nil {
-			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+			return fmt.Errorf("get org migration summary: %w", err)
 		}
 		om.state = state
 
@@ -313,13 +313,13 @@ func (ms *MigrationService) MigrateOrg(ctx context.Context, orgID int64, skipExi
 		om := ms.newOrgMigration(orgID)
 		state, err := om.migrationStore.GetOrgMigrationState(ctx, orgID)
 		if err != nil {
-			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+			return fmt.Errorf("get org migration summary: %w", err)
 		}
 		om.state = state
 
 		summary, err = om.migrateOrg(ctx, skipExisting)
 		if err != nil {
-			return fmt.Errorf("failed to migrate org %d: %w", orgID, err)
+			return fmt.Errorf("migrate org: %w", err)
 		}
 
 		for _, f := range om.folderHelper.createdFolders {
@@ -362,7 +362,7 @@ func (ms *MigrationService) GetOrgMigrationState(ctx context.Context, orgID int6
 		var err error
 		state, err = ms.migrationStore.GetOrgMigrationState(ctx, orgID)
 		if err != nil {
-			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+			return err
 		}
 		return nil
 	})
@@ -438,7 +438,7 @@ func (ms *MigrationService) Run(ctx context.Context) error {
 func (ms *MigrationService) migrateAllOrgs(ctx context.Context) error {
 	orgs, err := ms.migrationStore.GetAllOrgs(ctx)
 	if err != nil {
-		return fmt.Errorf("can't get org list: %w", err)
+		return fmt.Errorf("get orgs: %w", err)
 	}
 
 	for _, o := range orgs {
@@ -447,16 +447,16 @@ func (ms *MigrationService) migrateAllOrgs(ctx context.Context) error {
 			return fmt.Errorf("getting migration status for org %d: %w", o.ID, err)
 		}
 		if migrated {
-			ms.log.Warn("skipping org, active migration already exists", "orgID", o.ID)
+			ms.log.Warn("Skipping org, active migration already exists", "orgID", o.ID)
 			continue
 		}
 		om := ms.newOrgMigration(o.ID)
 		_, err = om.migrateOrg(ctx, true)
 		if err != nil {
-			return fmt.Errorf("failed to migrate org %d: %w", o.ID, err)
+			return fmt.Errorf("migrate org %d: %w", o.ID, err)
 		}
 		if err := om.writeSilencesFile(); err != nil {
-			return fmt.Errorf("failed to write silence file: %w", err)
+			return fmt.Errorf("write silence file for org %d: %w", o.ID, err)
 		}
 
 		for _, f := range om.folderHelper.createdFolders {

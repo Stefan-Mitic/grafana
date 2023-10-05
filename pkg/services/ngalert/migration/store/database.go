@@ -297,7 +297,7 @@ func (ms *migrationStore) RevertOrg(ctx context.Context, orgID int64) error {
 		}
 		for _, f := range files {
 			if err := os.Remove(f); err != nil {
-				ms.log.Error("alert migration error: failed to remove silence file", "file", f, "err", err)
+				ms.log.Error("Failed to remove silence file", "file", f, "err", err)
 			}
 		}
 
@@ -317,7 +317,7 @@ func (ms *migrationStore) RevertAllOrgs(ctx context.Context) error {
 
 		orgs, err := ms.GetAllOrgs(ctx)
 		if err != nil {
-			return fmt.Errorf("can't get org list: %w", err)
+			return fmt.Errorf("get orgs: %w", err)
 		}
 		for _, o := range orgs {
 			if err := ms.DeleteMigratedFolders(ctx, o.ID); err != nil {
@@ -351,7 +351,7 @@ func (ms *migrationStore) RevertAllOrgs(ctx context.Context) error {
 		}
 		for _, f := range files {
 			if err := os.Remove(f); err != nil {
-				ms.log.Error("alert migration error: failed to remove silence file", "file", f, "err", err)
+				ms.log.Error("Failed to remove silence file", "file", f, "err", err)
 			}
 		}
 
@@ -537,7 +537,7 @@ func (ms *migrationStore) IsProvisioned(ctx context.Context, orgID int64, dashbo
 		if errors.Is(err, dashboards.ErrProvisionedDashboardNotFound) {
 			return false, nil
 		}
-		return false, fmt.Errorf("failed to get provisioned status: %w", err)
+		return false, fmt.Errorf("get provisioned status: %w", err)
 	}
 
 	return info != nil, nil

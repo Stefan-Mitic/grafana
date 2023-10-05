@@ -374,7 +374,7 @@ func (fh *folderHelper) getFolder(ctx context.Context, dash *dashboards.Dashboar
 		// Don't use general folder since it has no uid, instead we use a new "General Alerting" folder.
 		migratedFolder, err := fh.getOrCreateGeneralAlertingFolder(ctx, fh.orgID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get or create general folder: %w", err)
+			return nil, fmt.Errorf("get or create general folder: %w", err)
 		}
 		return migratedFolder, err
 	}
@@ -384,7 +384,7 @@ func (fh *folderHelper) getFolder(ctx context.Context, dash *dashboards.Dashboar
 		if errors.Is(err, dashboards.ErrFolderNotFound) {
 			return nil, fmt.Errorf("folder with id %v not found", dash.FolderID)
 		}
-		return nil, fmt.Errorf("failed to get folder %d: %w", dash.FolderID, err)
+		return nil, fmt.Errorf("get folder %d: %w", dash.FolderID, err)
 	}
 	fh.folderCache[dash.FolderID] = f
 	return f, nil
@@ -402,12 +402,12 @@ func (fh *folderHelper) getOrCreateGeneralAlertingFolder(ctx context.Context, or
 			// create general alerting folder without permissions to mimic the general folder.
 			f, err := fh.createFolder(ctx, orgID, generalAlertingFolderTitle, nil)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create general alerting folder: %w", err)
+				return nil, fmt.Errorf("create general alerting folder: %w", err)
 			}
 			fh.generalFolder = f
 			return f, err
 		}
-		return nil, fmt.Errorf("failed to get folder '%s': %w", generalAlertingFolderTitle, err)
+		return nil, fmt.Errorf("get folder '%s': %w", generalAlertingFolderTitle, err)
 	}
 	fh.generalFolder = f
 	return f, nil
@@ -427,7 +427,7 @@ func (fh *folderHelper) createFolder(ctx context.Context, orgID int64, title str
 	if len(newPerms) > 0 {
 		_, err = fh.migrationStore.SetPermissions(ctx, orgID, f.UID, newPerms...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to set permissions: %w", err)
+			return nil, fmt.Errorf("set permissions: %w", err)
 		}
 	}
 
