@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -36,11 +37,7 @@ func (om *orgMigration) setupAlertmanagerConfigs(ctx context.Context) (*apimodel
 		return nil, fmt.Errorf("failed to load notification channels: %w", err)
 	}
 
-	amConfig, err := om.createBaseConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create base alertmanager config in orgId %d: %w", om.orgID, err)
-	}
-
+	amConfig := om.createBaseConfig()
 	// Nested route that will contain all the migrated channels. This route is matched on the UseLegacyChannelsLabel
 	// and mostly exists to keep the migrated channels separate and organized.
 	nestedLegacyChannelRoute := amConfig.AlertmanagerConfig.Route.Routes[0]
@@ -49,16 +46,19 @@ func (om *orgMigration) setupAlertmanagerConfigs(ctx context.Context) (*apimodel
 	for _, c := range channels {
 		cr, err := om.createReceiver(c)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create receiver for channel %s in orgId %d: %w", c.Name, om.orgID, err)
+			om.summary.MigratedChannels = append(om.summary.MigratedChannels, newContactPair(c, nil, false, fmt.Errorf("failed to create receiver: %w", err)))
+			continue
 		}
 
 		route, err := createRoute(cr)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create route for receiver %s in orgId %d: %w", cr.receiver.Name, om.orgID, err)
+			om.summary.MigratedChannels = append(om.summary.MigratedChannels, newContactPair(c, nil, false, fmt.Errorf("failed to create route for receiver: %w", err)))
+			continue
 		}
 
 		nestedLegacyChannelRoute.Routes = append(nestedLegacyChannelRoute.Routes, route)
 		amConfig.AlertmanagerConfig.Receivers = append(amConfig.AlertmanagerConfig.Receivers, cr.receiver)
+		om.summary.MigratedChannels = append(om.summary.MigratedChannels, newContactPair(c, cr.receiver, false, nil))
 	}
 
 	return amConfig, nil
@@ -109,6 +109,7 @@ func (om *orgMigration) getNotificationChannels(ctx context.Context) ([]*legacym
 	var channels []*legacymodels.AlertNotification
 	for i, c := range alertNotifications {
 		if c.Type == "hipchat" || c.Type == "sensu" {
+			om.summary.MigratedChannels = append(om.summary.MigratedChannels, newContactPair(&alertNotifications[i], nil, false, errors.New("failed to create receiver: discontinued notification channel found")))
 			om.log.Error("Alert migration error: discontinued notification channel found", "type", c.Type, "name", c.Name, "uid", c.UID)
 			continue
 		}
@@ -163,11 +164,8 @@ func (om *orgMigration) createReceiver(channel *legacymodels.AlertNotification) 
 
 // createBaseConfig creates an alertmanager config with the root-level route, default receiver, and nested route
 // for migrated channels.
-func (om *orgMigration) createBaseConfig() (*apimodels.PostableUserConfig, error) {
-	mat, err := labels.NewMatcher(labels.MatchEqual, UseLegacyChannelsLabel, "true")
-	if err != nil {
-		return nil, err
-	}
+func (om *orgMigration) createBaseConfig() *apimodels.PostableUserConfig {
+	mat, _ := labels.NewMatcher(labels.MatchEqual, UseLegacyChannelsLabel, "true")
 
 	return &apimodels.PostableUserConfig{
 		AlertmanagerConfig: apimodels.PostableApiAlertingConfig{
@@ -193,7 +191,7 @@ func (om *orgMigration) createBaseConfig() (*apimodels.PostableUserConfig, error
 				},
 			},
 		},
-	}, nil
+	}
 }
 
 // createRoute creates a route from a legacy notification channel, and matches using a label based on the channel UID.

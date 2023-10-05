@@ -96,6 +96,23 @@
    "title": "AlertManagersResult contains the result from querying the alertmanagers endpoint.",
    "type": "object"
   },
+  "AlertPair": {
+   "properties": {
+    "alertRule": {
+     "$ref": "#/definitions/AlertRuleUpgrade"
+    },
+    "error": {
+     "type": "string"
+    },
+    "legacyAlert": {
+     "$ref": "#/definitions/LegacyAlert"
+    },
+    "provisioned": {
+     "type": "boolean"
+    }
+   },
+   "type": "object"
+  },
   "AlertQuery": {
    "properties": {
     "datasourceUid": {
@@ -276,6 +293,67 @@
     "interval": {
      "format": "int64",
      "type": "integer"
+    }
+   },
+   "type": "object"
+  },
+  "AlertRuleUpgrade": {
+   "properties": {
+    "annotations": {
+     "additionalProperties": {
+      "type": "string"
+     },
+     "type": "object"
+    },
+    "dashboardUid": {
+     "type": "string"
+    },
+    "execErrState": {
+     "enum": [
+      "OK",
+      "Alerting",
+      "Error"
+     ],
+     "type": "string"
+    },
+    "folderName": {
+     "type": "string"
+    },
+    "folderUid": {
+     "type": "string"
+    },
+    "for": {
+     "$ref": "#/definitions/Duration"
+    },
+    "isPaused": {
+     "type": "boolean"
+    },
+    "labels": {
+     "additionalProperties": {
+      "type": "string"
+     },
+     "type": "object"
+    },
+    "modified": {
+     "type": "boolean"
+    },
+    "noDataState": {
+     "enum": [
+      "Alerting",
+      "NoData",
+      "OK"
+     ],
+     "type": "string"
+    },
+    "panelId": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "title": {
+     "type": "string"
+    },
+    "uid": {
+     "type": "string"
     }
    },
    "type": "object"
@@ -552,6 +630,23 @@
    "title": "Config is the top-level configuration for Alertmanager's config files.",
    "type": "object"
   },
+  "ContactPair": {
+   "properties": {
+    "contactPoint": {
+     "$ref": "#/definitions/ContactPointUpgrade"
+    },
+    "error": {
+     "type": "string"
+    },
+    "legacyChannel": {
+     "$ref": "#/definitions/LegacyChannel"
+    },
+    "provisioned": {
+     "type": "boolean"
+    }
+   },
+   "type": "object"
+  },
   "ContactPointExport": {
    "properties": {
     "name": {
@@ -569,6 +664,26 @@
     }
    },
    "title": "ContactPointExport is the provisioned file export of alerting.ContactPointV1.",
+   "type": "object"
+  },
+  "ContactPointUpgrade": {
+   "properties": {
+    "disableResolveMessage": {
+     "type": "boolean"
+    },
+    "modified": {
+     "type": "boolean"
+    },
+    "name": {
+     "type": "string"
+    },
+    "type": {
+     "type": "string"
+    },
+    "uid": {
+     "type": "string"
+    }
+   },
    "type": "object"
   },
   "ContactPoints": {
@@ -1810,6 +1925,90 @@
    },
    "type": "array"
   },
+  "LegacyAlert": {
+   "properties": {
+    "dashboardId": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "dashboardName": {
+     "type": "string"
+    },
+    "dashboardUid": {
+     "type": "string"
+    },
+    "executionError": {
+     "type": "string"
+    },
+    "folderName": {
+     "type": "string"
+    },
+    "folderUid": {
+     "type": "string"
+    },
+    "for": {
+     "$ref": "#/definitions/Duration"
+    },
+    "frequency": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "id": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "modified": {
+     "type": "boolean"
+    },
+    "name": {
+     "type": "string"
+    },
+    "panelId": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "paused": {
+     "type": "boolean"
+    },
+    "silenced": {
+     "type": "boolean"
+    }
+   },
+   "type": "object"
+  },
+  "LegacyChannel": {
+   "properties": {
+    "disableResolveMessage": {
+     "type": "boolean"
+    },
+    "frequency": {
+     "$ref": "#/definitions/Duration"
+    },
+    "id": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "isDefault": {
+     "type": "boolean"
+    },
+    "modified": {
+     "type": "boolean"
+    },
+    "name": {
+     "type": "string"
+    },
+    "sendReminder": {
+     "type": "boolean"
+    },
+    "type": {
+     "type": "string"
+    },
+    "uid": {
+     "type": "string"
+    }
+   },
+   "type": "object"
+  },
   "LinkTransformationConfig": {
    "properties": {
     "expression": {
@@ -1849,7 +2048,7 @@
   },
   "MatchRegexps": {
    "additionalProperties": {
-    "$ref": "#/definitions/Regexp"
+    "type": "string"
    },
    "title": "MatchRegexps represents a map of Regexp.",
    "type": "object"
@@ -2118,6 +2317,39 @@
     },
     "username": {
      "type": "string"
+    }
+   },
+   "type": "object"
+  },
+  "OrgMigrationSummary": {
+   "properties": {
+    "createdFolders": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "errors": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "migratedAlerts": {
+     "items": {
+      "$ref": "#/definitions/AlertPair"
+     },
+     "type": "array"
+    },
+    "migratedChannels": {
+     "items": {
+      "$ref": "#/definitions/ContactPair"
+     },
+     "type": "array"
+    },
+    "orgId": {
+     "format": "int64",
+     "type": "integer"
     }
    },
    "type": "object"
@@ -2971,11 +3203,6 @@
     }
    },
    "title": "ReceiverExport is the provisioned file export of alerting.ReceiverV1.",
-   "type": "object"
-  },
-  "Regexp": {
-   "description": "A Regexp is safe for concurrent use by multiple goroutines,\nexcept for configuration methods, such as Longest.",
-   "title": "Regexp is the representation of a compiled regular expression.",
    "type": "object"
   },
   "RelativeTimeRange": {
@@ -4097,6 +4324,7 @@
    "type": "object"
   },
   "alertGroup": {
+   "description": "AlertGroup alert group",
    "properties": {
     "alerts": {
      "description": "alerts",
@@ -4120,7 +4348,6 @@
    "type": "object"
   },
   "alertGroups": {
-   "description": "AlertGroups alert groups",
    "items": {
     "$ref": "#/definitions/alertGroup"
    },
@@ -4337,13 +4564,13 @@
    "type": "object"
   },
   "gettableSilences": {
+   "description": "GettableSilences gettable silences",
    "items": {
     "$ref": "#/definitions/gettableSilence"
    },
    "type": "array"
   },
   "integration": {
-   "description": "Integration integration",
    "properties": {
     "lastNotifyAttempt": {
      "description": "A timestamp indicating the last attempt to deliver a notification regardless of the outcome.\nFormat: date-time",
@@ -4524,7 +4751,6 @@
    "type": "object"
   },
   "receiver": {
-   "description": "Receiver receiver",
    "properties": {
     "active": {
      "description": "active",
@@ -7576,6 +7802,62 @@
     "summary": "Query state history.",
     "tags": [
      "history"
+    ]
+   }
+  },
+  "/api/v1/upgrade": {
+   "delete": {
+    "operationId": "RouteDeleteOrgUpgrade",
+    "produces": [
+     "application/json"
+    ],
+    "responses": {
+     "200": {
+      "description": "Ack",
+      "schema": {
+       "$ref": "#/definitions/Ack"
+      }
+     }
+    },
+    "summary": "Delete existing alerting upgrade for current organization.",
+    "tags": [
+     "upgrade"
+    ]
+   },
+   "get": {
+    "operationId": "RouteGetOrgUpgrade",
+    "produces": [
+     "application/json"
+    ],
+    "responses": {
+     "200": {
+      "description": "OrgMigrationSummary",
+      "schema": {
+       "$ref": "#/definitions/OrgMigrationSummary"
+      }
+     }
+    },
+    "summary": "Get existing alerting upgrade for current organization.",
+    "tags": [
+     "upgrade"
+    ]
+   },
+   "post": {
+    "operationId": "RoutePostUpgradeOrg",
+    "produces": [
+     "application/json"
+    ],
+    "responses": {
+     "200": {
+      "description": "OrgMigrationSummary",
+      "schema": {
+       "$ref": "#/definitions/OrgMigrationSummary"
+      }
+     }
+    },
+    "summary": "Upgrade alerting for current organization.",
+    "tags": [
+     "upgrade"
     ]
    }
   }

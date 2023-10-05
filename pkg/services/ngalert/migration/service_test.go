@@ -151,16 +151,13 @@ func TestServiceRevert(t *testing.T) {
 		require.NotNil(t, getDashboard(t, x, 1, "dash2-1"))
 		require.NotNil(t, getDashboard(t, x, 1, "dash-in-general-1"))
 
-		createdFolders, err := service.migrationStore.GetCreatedFolders(ctx, anyOrg)
+		summary, err := service.migrationStore.GetOrgMigrationSummary(ctx, 1)
 		require.NoError(t, err)
 
 		// Verify list of created folders.
-		require.NotEmpty(t, createdFolders)
-		for orgId, folderUids := range createdFolders {
-			require.NotEmpty(t, folderUids)
-			for _, uid := range folderUids {
-				require.NotNil(t, getDashboard(t, x, orgId, uid))
-			}
+		require.NotEmpty(t, summary.CreatedFolders)
+		for _, uid := range summary.CreatedFolders {
+			require.NotNil(t, getDashboard(t, x, 1, uid))
 		}
 
 		// Revert migration.
@@ -184,10 +181,8 @@ func TestServiceRevert(t *testing.T) {
 		require.NotNil(t, getDashboard(t, x, 1, "dash-in-general-1"))
 
 		// Check that folders created during migration are gone.
-		for orgId, folderUids := range createdFolders {
-			for _, uid := range folderUids {
-				require.Nil(t, getDashboard(t, x, orgId, uid))
-			}
+		for _, uid := range summary.CreatedFolders {
+			require.Nil(t, getDashboard(t, x, 1, uid))
 		}
 	})
 }

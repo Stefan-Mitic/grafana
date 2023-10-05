@@ -11,7 +11,6 @@ import (
 	"github.com/grafana/grafana/pkg/infra/log"
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 	"github.com/grafana/grafana/pkg/services/dashboards"
-	"github.com/grafana/grafana/pkg/services/folder"
 	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
 	"github.com/grafana/grafana/pkg/tsdb/graphite"
@@ -27,33 +26,6 @@ const (
 	// during migration.
 	UseLegacyChannelsLabel = "__use_legacy_channels__"
 )
-
-// MigrateAlert migrates a single dashboard alert from legacy alerting to unified alerting.
-func (ms *MigrationService) MigrateAlert(ctx context.Context, l log.Logger, alert *legacymodels.Alert, dash *dashboards.Dashboard, f *folder.Folder) (*ngmodels.AlertRule, error) {
-	l.Debug("migrating alert rule to Unified Alerting")
-	rawSettings, err := json.Marshal(alert.Settings)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get settings: %w", err)
-	}
-	var parsedSettings dashAlertSettings
-	err = json.Unmarshal(rawSettings, &parsedSettings)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse settings: %w", err)
-	}
-	newCond, err := transConditions(ctx, parsedSettings, alert.OrgID, ms.migrationStore)
-	if err != nil {
-		return nil, fmt.Errorf("failed to transform conditions: %w", err)
-	}
-
-	channels := ms.extractChannelUIDs(ctx, l, alert.OrgID, parsedSettings)
-
-	rule, err := makeAlertRule(l, *newCond, alert, dash, f.UID, channels)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make alert rule: %w", err)
-	}
-
-	return rule, nil
-}
 
 func addMigrationInfo(l log.Logger, alert *legacymodels.Alert, dashboardUID string, channels []string) (map[string]string, map[string]string) {
 	tags := alert.GetTagsFromSettings()
@@ -308,13 +280,13 @@ func truncateRuleName(daName string) string {
 }
 
 // extractChannelUIDs extracts the notification channel UIDs from the given legacy dashboard alert parsed settings.
-func (ms *MigrationService) extractChannelUIDs(ctx context.Context, l log.Logger, orgID int64, parsedSettings dashAlertSettings) (channelUids []string) {
+func (om *orgMigration) extractChannelUIDs(ctx context.Context, l log.Logger, orgID int64, parsedSettings dashAlertSettings) (channelUids []string) {
 	// Extracting channel UID/ID.
 	for _, ui := range parsedSettings.Notifications {
 
 		// Either id or uid can be defined in the dashboard alert notification settings. See alerting.NewRuleFromDBAlert.
 		if ui.ID > 0 {
-			uid, err := ms.migrationStore.GetAlertNotificationUidWithId(ctx, orgID, ui.ID)
+			uid, err := om.migrationStore.GetAlertNotificationUidWithId(ctx, orgID, ui.ID)
 			if err != nil {
 				l.Error("failed to get alert notification UID", "notificationId", ui.ID, "err", err)
 			}

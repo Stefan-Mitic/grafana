@@ -72,16 +72,16 @@ func getMigrationUser(orgID int64) identity.Requester {
 // If the dashboard has no custom permissions, this should be the same folder as dash.FolderID.
 // If the dashboard has custom permissions that affect access, this should be a new folder with migrated permissions relating to both the dashboard and parent folder.
 // Any dashboard that has greater read/write permissions for an orgRole/team/user compared to its folder will necessitate creating a new folder with the same permissions as the dashboard.
-func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Logger, dash *dashboards.Dashboard) (*folder.Folder, error) {
+func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Logger, dash *dashboards.Dashboard) (*folder.Folder, *folder.Folder, error) {
 	dashFolder, err := fh.getFolder(ctx, dash)
 	if err != nil {
 		// If folder does not exist then the dashboard is an orphan. We migrate the alert to the general alerting folder.
 		l.Warn("Failed to find folder for dashboard. Migrate rule to the default folder", "missing_folder_id", dash.FolderID, "error", err)
 		migratedFolder, err := fh.getOrCreateGeneralAlertingFolder(ctx, fh.orgID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get or create general folder: %w", err)
+			return nil, nil, fmt.Errorf("failed to get or create general folder: %w", err)
 		}
-		return migratedFolder, nil
+		return nil, migratedFolder, nil
 	}
 
 	// Now that we have a folder for the dashboard, check if the dashboard has custom permissions. If it does, we need to create a new folder for it.
@@ -93,14 +93,14 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 
 		folderPerms, err := fh.getFolderPermissions(ctx, dashFolder)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get folder permissions: %w", err)
+			return dashFolder, nil, fmt.Errorf("failed to get folder permissions: %w", err)
 		}
 		newFolderPerms, _ := fh.convertResourcePerms(folderPerms)
 
 		// We assign the folder to the cache so that any dashboards with identical equivalent permissions will use the parent folder instead of creating a new one.
 		folderPermsHash, err := createHash(newFolderPerms)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get hash of folder permissions: %w", err)
+			return dashFolder, nil, fmt.Errorf("failed to get hash of folder permissions: %w", err)
 		}
 		customFolders[folderPermsHash] = dashFolder
 	}
@@ -108,12 +108,12 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 	// Now we compute the hash of the dashboard permissions and check if we have a folder for it. If not, we create a new one.
 	perms, err := fh.getDashboardPermissions(ctx, dash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get dashboard permissions: %w", err)
+		return dashFolder, nil, fmt.Errorf("failed to get dashboard permissions: %w", err)
 	}
 	newPerms, unusedPerms := fh.convertResourcePerms(perms)
 	hash, err := createHash(newPerms)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get hash of dashboard permissions: %w", err)
+		return dashFolder, nil, fmt.Errorf("failed to get hash of dashboard permissions: %w", err)
 	}
 
 	customFolder, ok := customFolders[hash]
@@ -122,7 +122,7 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 		l.Info("dashboard has custom permissions, create a new folder for alerts.", "newFolder", folderName)
 		f, err := fh.createFolder(ctx, fh.orgID, folderName, newPerms)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create folder: %w", err)
+			return dashFolder, nil, fmt.Errorf("failed to create folder: %w", err)
 		}
 
 		// If the role is not managed or basic we don't attempt to migrate its permissions. This is because
@@ -136,10 +136,10 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 		}
 
 		customFolders[hash] = f
-		return f, nil
+		return dashFolder, f, nil
 	}
 
-	return customFolder, nil
+	return dashFolder, customFolder, nil
 }
 
 // generateAlertFolderName generates a folder name for alerts that belong to a dashboard with custom permissions.

@@ -28,6 +28,8 @@ import (
 	"github.com/grafana/grafana/pkg/services/ngalert/eval"
 	"github.com/grafana/grafana/pkg/services/ngalert/image"
 	"github.com/grafana/grafana/pkg/services/ngalert/metrics"
+	"github.com/grafana/grafana/pkg/services/ngalert/migration"
+	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/notifier"
 	"github.com/grafana/grafana/pkg/services/ngalert/provisioning"
@@ -68,6 +70,8 @@ func ProvideService(
 	pluginsStore pluginstore.Store,
 	tracer tracing.Tracer,
 	ruleStore *store.DBstore,
+	upgradeStore migrationStore.Store,
+	dashboardPermissions accesscontrol.DashboardPermissionsService,
 ) (*AlertNG, error) {
 	ng := &AlertNG{
 		Cfg:                  cfg,
@@ -94,10 +98,9 @@ func ProvideService(
 		pluginsStore:         pluginsStore,
 		tracer:               tracer,
 		store:                ruleStore,
-	}
 
-	if ng.IsDisabled() {
-		return ng, nil
+		upgradeStore:         upgradeStore,
+		dashboardPermissions: dashboardPermissions,
 	}
 
 	if err := ng.init(); err != nil {
@@ -142,6 +145,9 @@ type AlertNG struct {
 	bus          bus.Bus
 	pluginsStore pluginstore.Store
 	tracer       tracing.Tracer
+
+	upgradeStore         migrationStore.Store
+	dashboardPermissions accesscontrol.DashboardPermissionsService
 }
 
 func (ng *AlertNG) init() error {
@@ -245,6 +251,29 @@ func (ng *AlertNG) init() error {
 		int64(ng.Cfg.UnifiedAlerting.DefaultRuleEvaluationInterval.Seconds()),
 		int64(ng.Cfg.UnifiedAlerting.BaseInterval.Seconds()), ng.Log)
 
+	//upgradeService, err := migrationStore.ProvideMigrationStore(
+	//	ng.Cfg,
+	//	ng.SQLStore,
+	//	ng.KVStore,
+	//	ng.store,
+	//	ng.SecretsService,
+	//	ng.dashboardService,
+	//	ng.folderService,
+	//	ng.DataSourceCache,
+	//	ng.folderPermissions,
+	//	ng.dashboardPermissions,
+	//	ng.orgService,
+	//	ng.legacyAlertStore)
+
+	upgradeService, err := migration.ProvideService(
+		nil,
+		ng.Cfg,
+		ng.SQLStore,
+		ng.upgradeStore,
+		ng.SecretsService,
+		ng.dashboardPermissions,
+	)
+
 	ng.api = &api.API{
 		Cfg:                  ng.Cfg,
 		DatasourceCache:      ng.DataSourceCache,
@@ -272,6 +301,7 @@ func (ng *AlertNG) init() error {
 		Historian:            history,
 		Hooks:                api.NewHooks(ng.Log),
 		Tracer:               ng.tracer,
+		UpgradeService:       upgradeService,
 	}
 	ng.api.RegisterAPIEndpoints(ng.Metrics.GetAPIMetrics())
 

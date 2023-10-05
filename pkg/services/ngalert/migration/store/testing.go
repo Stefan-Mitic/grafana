@@ -9,6 +9,7 @@ import (
 
 	"github.com/grafana/grafana/pkg/api/routing"
 	"github.com/grafana/grafana/pkg/bus"
+	"github.com/grafana/grafana/pkg/infra/kvstore"
 	"github.com/grafana/grafana/pkg/infra/localcache"
 	"github.com/grafana/grafana/pkg/infra/log/logtest"
 	"github.com/grafana/grafana/pkg/infra/tracing"
@@ -22,7 +23,6 @@ import (
 	"github.com/grafana/grafana/pkg/services/folder/folderimpl"
 	"github.com/grafana/grafana/pkg/services/licensing/licensingtest"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
-	"github.com/grafana/grafana/pkg/services/ngalert/tests/fakes"
 	"github.com/grafana/grafana/pkg/services/ngalert/testutil"
 	"github.com/grafana/grafana/pkg/services/org/orgimpl"
 	"github.com/grafana/grafana/pkg/services/quota/quotatest"
@@ -85,18 +85,19 @@ func NewTestMigrationStore(t *testing.T, sqlStore *sqlstore.SQLStore, cfg *setti
 	legacyAlertStore := legacyalerting.ProvideAlertStore(sqlStore, cache, cfg, nil, features)
 
 	return &migrationStore{
-		log:                  &logtest.Fake{},
-		cfg:                  cfg,
-		store:                sqlStore,
-		kv:                   fakes.NewFakeKVStore(t),
-		alertingStore:        &alertingStore,
-		encryptionService:    fake_secrets.NewFakeSecretsService(),
-		dashboardService:     dashboardService,
-		folderService:        folderService,
-		dataSourceCache:      datasourceService.ProvideCacheService(cache, sqlStore, guardian.ProvideGuardian()),
-		folderPermissions:    folderPermissions,
-		dashboardPermissions: dashboardPermissions,
-		orgService:           orgService,
-		legacyAlertStore:     legacyAlertStore,
+		log:                          &logtest.Fake{},
+		cfg:                          cfg,
+		store:                        sqlStore,
+		kv:                           kvstore.ProvideService(sqlStore),
+		alertingStore:                &alertingStore,
+		encryptionService:            fake_secrets.NewFakeSecretsService(),
+		dashboardService:             dashboardService,
+		folderService:                folderService,
+		dataSourceCache:              datasourceService.ProvideCacheService(cache, sqlStore, guardian.ProvideGuardian()),
+		folderPermissions:            folderPermissions,
+		dashboardPermissions:         dashboardPermissions,
+		orgService:                   orgService,
+		legacyAlertStore:             legacyAlertStore,
+		dashboardProvisioningService: dashboardService,
 	}
 }

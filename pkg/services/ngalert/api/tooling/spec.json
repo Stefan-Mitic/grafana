@@ -2979,6 +2979,62 @@
           }
         }
       }
+    },
+    "/api/v1/upgrade": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "upgrade"
+        ],
+        "summary": "Get existing alerting upgrade for current organization.",
+        "operationId": "RouteGetOrgUpgrade",
+        "responses": {
+          "200": {
+            "description": "OrgMigrationSummary",
+            "schema": {
+              "$ref": "#/definitions/OrgMigrationSummary"
+            }
+          }
+        }
+      },
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "upgrade"
+        ],
+        "summary": "Upgrade alerting for current organization.",
+        "operationId": "RoutePostUpgradeOrg",
+        "responses": {
+          "200": {
+            "description": "OrgMigrationSummary",
+            "schema": {
+              "$ref": "#/definitions/OrgMigrationSummary"
+            }
+          }
+        }
+      },
+      "delete": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "upgrade"
+        ],
+        "summary": "Delete existing alerting upgrade for current organization.",
+        "operationId": "RouteDeleteOrgUpgrade",
+        "responses": {
+          "200": {
+            "description": "Ack",
+            "schema": {
+              "$ref": "#/definitions/Ack"
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {
@@ -3071,6 +3127,23 @@
           "items": {
             "$ref": "#/definitions/AlertManager"
           }
+        }
+      }
+    },
+    "AlertPair": {
+      "type": "object",
+      "properties": {
+        "alertRule": {
+          "$ref": "#/definitions/AlertRuleUpgrade"
+        },
+        "error": {
+          "type": "string"
+        },
+        "legacyAlert": {
+          "$ref": "#/definitions/LegacyAlert"
+        },
+        "provisioned": {
+          "type": "boolean"
         }
       }
     },
@@ -3255,6 +3328,67 @@
         "interval": {
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "AlertRuleUpgrade": {
+      "type": "object",
+      "properties": {
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "dashboardUid": {
+          "type": "string"
+        },
+        "execErrState": {
+          "type": "string",
+          "enum": [
+            "OK",
+            "Alerting",
+            "Error"
+          ]
+        },
+        "folderName": {
+          "type": "string"
+        },
+        "folderUid": {
+          "type": "string"
+        },
+        "for": {
+          "$ref": "#/definitions/Duration"
+        },
+        "isPaused": {
+          "type": "boolean"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "modified": {
+          "type": "boolean"
+        },
+        "noDataState": {
+          "type": "string",
+          "enum": [
+            "Alerting",
+            "NoData",
+            "OK"
+          ]
+        },
+        "panelId": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "title": {
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
         }
       }
     },
@@ -3530,6 +3664,23 @@
         }
       }
     },
+    "ContactPair": {
+      "type": "object",
+      "properties": {
+        "contactPoint": {
+          "$ref": "#/definitions/ContactPointUpgrade"
+        },
+        "error": {
+          "type": "string"
+        },
+        "legacyChannel": {
+          "$ref": "#/definitions/LegacyChannel"
+        },
+        "provisioned": {
+          "type": "boolean"
+        }
+      }
+    },
     "ContactPointExport": {
       "type": "object",
       "title": "ContactPointExport is the provisioned file export of alerting.ContactPointV1.",
@@ -3546,6 +3697,26 @@
           "items": {
             "$ref": "#/definitions/ReceiverExport"
           }
+        }
+      }
+    },
+    "ContactPointUpgrade": {
+      "type": "object",
+      "properties": {
+        "disableResolveMessage": {
+          "type": "boolean"
+        },
+        "modified": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
         }
       }
     },
@@ -4791,6 +4962,90 @@
         "$ref": "#/definitions/Label"
       }
     },
+    "LegacyAlert": {
+      "type": "object",
+      "properties": {
+        "dashboardId": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "dashboardName": {
+          "type": "string"
+        },
+        "dashboardUid": {
+          "type": "string"
+        },
+        "executionError": {
+          "type": "string"
+        },
+        "folderName": {
+          "type": "string"
+        },
+        "folderUid": {
+          "type": "string"
+        },
+        "for": {
+          "$ref": "#/definitions/Duration"
+        },
+        "frequency": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "modified": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "panelId": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "silenced": {
+          "type": "boolean"
+        }
+      }
+    },
+    "LegacyChannel": {
+      "type": "object",
+      "properties": {
+        "disableResolveMessage": {
+          "type": "boolean"
+        },
+        "frequency": {
+          "$ref": "#/definitions/Duration"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "isDefault": {
+          "type": "boolean"
+        },
+        "modified": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "sendReminder": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      }
+    },
     "LinkTransformationConfig": {
       "type": "object",
       "properties": {
@@ -4832,7 +5087,7 @@
       "type": "object",
       "title": "MatchRegexps represents a map of Regexp.",
       "additionalProperties": {
-        "$ref": "#/definitions/Regexp"
+        "type": "string"
       }
     },
     "MatchType": {
@@ -5101,6 +5356,39 @@
         },
         "username": {
           "type": "string"
+        }
+      }
+    },
+    "OrgMigrationSummary": {
+      "type": "object",
+      "properties": {
+        "createdFolders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "migratedAlerts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AlertPair"
+          }
+        },
+        "migratedChannels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ContactPair"
+          }
+        },
+        "orgId": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -5954,11 +6242,6 @@
           "type": "string"
         }
       }
-    },
-    "Regexp": {
-      "description": "A Regexp is safe for concurrent use by multiple goroutines,\nexcept for configuration methods, such as Longest.",
-      "type": "object",
-      "title": "Regexp is the representation of a compiled regular expression."
     },
     "RelativeTimeRange": {
       "description": "RelativeTimeRange is the per query start and end time\nfor requests.",
@@ -7079,6 +7362,7 @@
       }
     },
     "alertGroup": {
+      "description": "AlertGroup alert group",
       "type": "object",
       "required": [
         "alerts",
@@ -7103,7 +7387,6 @@
       "$ref": "#/definitions/alertGroup"
     },
     "alertGroups": {
-      "description": "AlertGroups alert groups",
       "type": "array",
       "items": {
         "$ref": "#/definitions/alertGroup"
@@ -7324,6 +7607,7 @@
       "$ref": "#/definitions/gettableSilence"
     },
     "gettableSilences": {
+      "description": "GettableSilences gettable silences",
       "type": "array",
       "items": {
         "$ref": "#/definitions/gettableSilence"
@@ -7331,7 +7615,6 @@
       "$ref": "#/definitions/gettableSilences"
     },
     "integration": {
-      "description": "Integration integration",
       "type": "object",
       "required": [
         "name",
@@ -7514,7 +7797,6 @@
       "$ref": "#/definitions/postableSilence"
     },
     "receiver": {
-      "description": "Receiver receiver",
       "type": "object",
       "required": [
         "active",

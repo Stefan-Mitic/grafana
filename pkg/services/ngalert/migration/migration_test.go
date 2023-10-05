@@ -1188,7 +1188,7 @@ func teardown(t *testing.T, x *xorm.Engine, service *MigrationService) {
 	require.NoError(t, err)
 	_, err = x.Exec("DELETE from data_source")
 	require.NoError(t, err)
-	err = service.Revert(context.Background())
+	err = service.migrationStore.RevertAllOrgs(context.Background())
 	require.NoError(t, err)
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/grafana/grafana/pkg/infra/log/logtest"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
 	"github.com/grafana/grafana/pkg/services/folder"
+	apiModels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
 	fake_secrets "github.com/grafana/grafana/pkg/services/secrets/fakes"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
@@ -34,5 +35,8 @@ func newTestOrgMigration(t *testing.T, orgID int64) *orgMigration {
 		seenUIDs:            deduplicator{set: make(map[string]struct{}), caseInsensitive: migrator.NewMysqlDialect().SupportEngine()},
 		silences:            make([]*pb.MeshSilence, 0),
 		alertRuleTitleDedup: make(map[string]deduplicator),
+		summary: &apiModels.OrgMigrationSummary{
+			OrgID: orgID,
+		},
 	}
 }
