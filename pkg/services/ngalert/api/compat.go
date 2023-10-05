@@ -310,14 +310,9 @@ func FromMigrationState(summary *migmodels.OrgMigrationState) *definitions.OrgMi
 	result := &definitions.OrgMigrationState{
 		OrgID: summary.OrgID,
 	}
-
 	result.MigratedChannels = FromContactPairs(summary.MigratedChannels)
-
 	result.MigratedDashboards = FromDashboardUpgrades(summary.MigratedDashboards)
-
-	for _, e := range summary.Errors {
-		result.Errors = append(result.Errors, e)
-	}
+	result.Errors = append(result.Errors, summary.Errors...)
 
 	return result
 }

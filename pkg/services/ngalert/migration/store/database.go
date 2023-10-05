@@ -386,8 +386,9 @@ func (ms *migrationStore) DeleteFolders(ctx context.Context, orgID int64, uids .
 	usr := accesscontrol.BackgroundUser("ngalert_migration_revert", orgID, org.RoleAdmin, revertPermissions)
 	for _, folderUID := range uids {
 		// Check if folder is empty. If not, we should not delete it.
+		uid := folderUID
 		countCmd := folder.GetDescendantCountsQuery{
-			UID:          &folderUID,
+			UID:          &uid,
 			OrgID:        orgID,
 			SignedInUser: usr.(*user.SignedInUser),
 		}
@@ -409,7 +410,7 @@ func (ms *migrationStore) DeleteFolders(ctx context.Context, orgID int64, uids .
 		}
 
 		cmd := folder.DeleteFolderCommand{
-			UID:          folderUID,
+			UID:          uid,
 			OrgID:        orgID,
 			SignedInUser: usr.(*user.SignedInUser),
 		}

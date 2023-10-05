@@ -26,6 +26,8 @@ import (
 )
 
 // TestDashAlertPermissionMigration tests the execution of the migration specifically for dashboards with custom permissions.
+//
+//nolint:gocyclo
 func TestDashAlertPermissionMigration(t *testing.T) {
 	genLegacyAlert := func(name string, dashboardId int64, mutators ...func(*models.Alert)) *models.Alert {
 		a := createAlert(t, 1, int(dashboardId), 1, name, nil)
@@ -620,7 +622,7 @@ func TestDashAlertPermissionMigration(t *testing.T) {
 						createRoles(t, context.Background(), sqlStore, tt.roles)
 					}
 
-					service := NewMigrationService(t, sqlStore, &setting.Cfg{})
+					service := NewTestMigrationService(t, sqlStore, &setting.Cfg{})
 					setupLegacyAlertsTables(t, x, nil, tt.alerts, tt.folders, tt.dashboards)
 
 					for i := 1; i < 3; i++ {
@@ -736,10 +738,8 @@ func TestDashAlertPermissionMigration(t *testing.T) {
 					}
 				})
 			}
-
 		})
 	}
-
 }
 
 func createRoles(t testing.TB, ctx context.Context, store db.DB, rolePerms map[accesscontrol.Role][]accesscontrol.Permission) {

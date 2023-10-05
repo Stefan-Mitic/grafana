@@ -349,7 +349,6 @@ func truncateRuleName(daName string) string {
 func (om *OrgMigration) extractChannelUIDs(ctx context.Context, l log.Logger, orgID int64, parsedSettings dashAlertSettings) (channelUids []string) {
 	// Extracting channel UID/ID.
 	for _, ui := range parsedSettings.Notifications {
-
 		// Either id or uid can be defined in the dashboard alert notification settings. See alerting.NewRuleFromDBAlert.
 		if ui.ID > 0 {
 			uid, err := om.migrationStore.GetAlertNotificationUidWithId(ctx, orgID, ui.ID)

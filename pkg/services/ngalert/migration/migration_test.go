@@ -19,18 +19,13 @@ import (
 
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/db"
-	"github.com/grafana/grafana/pkg/infra/serverlock"
-	"github.com/grafana/grafana/pkg/infra/tracing"
 	"github.com/grafana/grafana/pkg/services/alerting/models"
 	"github.com/grafana/grafana/pkg/services/dashboards"
 	"github.com/grafana/grafana/pkg/services/datasources"
 	apimodels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
-	migStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	ngModels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
 	"github.com/grafana/grafana/pkg/services/org"
-	fake_secrets "github.com/grafana/grafana/pkg/services/secrets/fakes"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/tsdb/legacydata"
 )
@@ -66,7 +61,7 @@ func TestServiceStart(t *testing.T) {
 			expected:       false,
 		},
 		{
-			name: "when unified alerting disabled, migration is already run and force migration is disabled, then the migration should panic",
+			name: "when unified alerting disabled, migration is already run and force migration is disabled, then the migration status should set to false",
 			config: &setting.Cfg{
 				UnifiedAlerting: setting.UnifiedAlertingSettings{
 					Enabled: pointer(false),
@@ -74,8 +69,7 @@ func TestServiceStart(t *testing.T) {
 				ForceMigration: false,
 			},
 			isMigrationRun: true,
-			expected:       true,
-			expectedErr:    true,
+			expected:       false,
 		},
 		{
 			name: "when unified alerting enabled and migration is already run, then do nothing",
@@ -103,7 +97,7 @@ func TestServiceStart(t *testing.T) {
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			service := NewMigrationService(t, sqlStore, tt.config)
+			service := NewTestMigrationService(t, sqlStore, tt.config)
 
 			err := service.migrationStore.SetMigrated(ctx, anyOrg, tt.isMigrationRun)
 			require.NoError(t, err)
@@ -126,14 +120,14 @@ func TestServiceStart(t *testing.T) {
 func TestAMConfigMigration(t *testing.T) {
 	sqlStore := db.InitTestDB(t)
 	x := sqlStore.GetEngine()
-	service := NewMigrationService(t, sqlStore, &setting.Cfg{})
+	service := NewTestMigrationService(t, sqlStore, &setting.Cfg{})
 	tc := []struct {
 		name           string
 		legacyChannels []*models.AlertNotification
 		alerts         []*models.Alert
 
-		expected map[int64]*apimodels.PostableUserConfig
-		expErr   error
+		expected  map[int64]*apimodels.PostableUserConfig
+		expErrors []string
 	}{
 		{
 			name: "general multi-org, multi-alert, multi-channel migration",
@@ -336,78 +330,39 @@ func TestAMConfigMigration(t *testing.T) {
 			},
 		},
 		{
-			name: "when unsupported channels, do not migrate them",
+			name: "when unsupported channels, return error",
 			legacyChannels: []*models.AlertNotification{
 				createAlertNotification(t, int64(1), "notifier1", "email", emailSettings, false),
 				createAlertNotification(t, int64(1), "notifier2", "hipchat", "", false),
 				createAlertNotification(t, int64(1), "notifier3", "sensu", "", false),
 			},
-			alerts: []*models.Alert{},
-			expected: map[int64]*apimodels.PostableUserConfig{
-				int64(1): {
-					AlertmanagerConfig: apimodels.PostableApiAlertingConfig{
-						Config: apimodels.Config{Route: &apimodels.Route{
-							Receiver:   "autogen-contact-point-default",
-							GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
-							Routes: []*apimodels.Route{
-								{
-									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
-									Continue:       true,
-									Routes: []*apimodels.Route{
-										{Receiver: "notifier1", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: fmt.Sprintf(ContactLabelTemplate, "notifier1"), Value: "true"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
-									},
-								},
-							},
-						}},
-						Receivers: []*apimodels.PostableApiReceiver{
-							{Receiver: config.Receiver{Name: "autogen-contact-point-default"}, PostableGrafanaReceivers: apimodels.PostableGrafanaReceivers{}},
-							{Receiver: config.Receiver{Name: "notifier1"}, PostableGrafanaReceivers: apimodels.PostableGrafanaReceivers{GrafanaManagedReceivers: []*apimodels.PostableGrafanaReceiver{{Name: "notifier1", Type: "email"}}}},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "when unsupported channel linked to alert, do not migrate only that channel",
-			legacyChannels: []*models.AlertNotification{
-				createAlertNotification(t, int64(1), "notifier1", "email", emailSettings, false),
-				createAlertNotification(t, int64(1), "notifier2", "sensu", "", false),
-			},
-			alerts: []*models.Alert{
-				createAlert(t, 1, 1, 1, "alert1", []string{"notifier1", "notifier2"}),
-			},
-			expected: map[int64]*apimodels.PostableUserConfig{
-				int64(1): {
-					AlertmanagerConfig: apimodels.PostableApiAlertingConfig{
-						Config: apimodels.Config{Route: &apimodels.Route{
-							Receiver:   "autogen-contact-point-default",
-							GroupByStr: []string{ngModels.FolderTitleLabel, model.AlertNameLabel},
-							Routes: []*apimodels.Route{
-								{
-									ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: UseLegacyChannelsLabel, Value: "true"}},
-									Continue:       true,
-									Routes: []*apimodels.Route{
-										{Receiver: "notifier1", ObjectMatchers: apimodels.ObjectMatchers{{Type: labels.MatchEqual, Name: fmt.Sprintf(ContactLabelTemplate, "notifier1"), Value: "true"}}, Routes: nil, Continue: true, RepeatInterval: durationPointer(DisabledRepeatInterval)},
-									},
-								},
-							},
-						}},
-						Receivers: []*apimodels.PostableApiReceiver{
-							{Receiver: config.Receiver{Name: "autogen-contact-point-default"}, PostableGrafanaReceivers: apimodels.PostableGrafanaReceivers{}},
-							{Receiver: config.Receiver{Name: "notifier1"}, PostableGrafanaReceivers: apimodels.PostableGrafanaReceivers{GrafanaManagedReceivers: []*apimodels.PostableGrafanaReceiver{{Name: "notifier1", Type: "email"}}}},
-						},
-					},
-				},
-			},
+			alerts:    []*models.Alert{},
+			expErrors: []string{"hipchat is discontinued", "sensu is discontinued"},
 		},
 	}
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
 			defer teardown(t, x, service)
-			setupLegacyAlertsTables(t, x, tt.legacyChannels, tt.alerts, nil, nil)
+			dashes := []*dashboards.Dashboard{
+				createDashboard(t, 1, 1, "dash1-1", 5, nil),
+				createDashboard(t, 2, 1, "dash2-1", 5, nil),
+				createDashboard(t, 3, 2, "dash3-2", 6, nil),
+				createDashboard(t, 4, 2, "dash4-2", 6, nil),
+			}
+			folders := []*dashboards.Dashboard{
+				createFolder(t, 5, 1, "folder5-1"),
+				createFolder(t, 6, 2, "folder6-2"),
+			}
+			setupLegacyAlertsTables(t, x, tt.legacyChannels, tt.alerts, folders, dashes)
 
 			err := service.Run(context.Background())
+			if len(tt.expErrors) > 0 {
+				for _, expErr := range tt.expErrors {
+					require.ErrorContains(t, err, expErr)
+				}
+				return
+			}
 			require.NoError(t, err)
 
 			for orgId := range tt.expected {
@@ -447,7 +402,7 @@ func TestAMConfigMigration(t *testing.T) {
 func TestDashAlertMigration(t *testing.T) {
 	sqlStore := db.InitTestDB(t)
 	x := sqlStore.GetEngine()
-	service := NewMigrationService(t, sqlStore, &setting.Cfg{})
+	service := NewTestMigrationService(t, sqlStore, &setting.Cfg{})
 
 	withDefaults := func(lbls map[string]string) map[string]string {
 		lbls[UseLegacyChannelsLabel] = "true"
@@ -575,7 +530,6 @@ func TestDashAlertMigration(t *testing.T) {
 				require.Greater(t, len(parts[1]), 8, "unique identifier should be longer than 9 characters")
 				require.Equal(t, store.AlertDefinitionMaxTitleLength-1, len(parts[0])+len(parts[1]), "truncated name + underscore + unique identifier should together be DefaultFieldMaxLength")
 			}
-
 		}
 	})
 }
@@ -584,7 +538,7 @@ func TestDashAlertMigration(t *testing.T) {
 func TestDashAlertQueryMigration(t *testing.T) {
 	sqlStore := db.InitTestDB(t)
 	x := sqlStore.GetEngine()
-	service := NewMigrationService(t, sqlStore, &setting.Cfg{})
+	service := NewTestMigrationService(t, sqlStore, &setting.Cfg{})
 
 	createAlertQuery := func(refId string, ds string, from string, to string) ngModels.AlertQuery {
 		dur, _ := calculateInterval(legacydata.NewDataTimeRange(from, to), simplejson.New(), nil)
@@ -677,6 +631,7 @@ func TestDashAlertQueryMigration(t *testing.T) {
 
 		expectedFolder *dashboards.Dashboard
 		expected       map[int64][]*ngModels.AlertRule
+		expErrors      []string
 	}
 
 	tc := []testcase{
@@ -880,16 +835,14 @@ func TestDashAlertQueryMigration(t *testing.T) {
 			},
 		},
 		{
-			name: "alerts with unknown dashboard do not migrate",
+			name: "alerts with unknown dashboard return error",
 			alerts: []*models.Alert{
 				createAlertWithCond(t, 1, 22, 1, "alert1", nil,
 					[]dashAlertCondition{
 						createCondition("A", "avg", "gt", 42, 1, "5m", "now"),
 					}),
 			},
-			expected: map[int64][]*ngModels.AlertRule{
-				int64(1): {},
-			},
+			expErrors: []string{"Dashboard not found"},
 		},
 		{
 			name: "alerts with unknown org do not migrate",
@@ -975,6 +928,12 @@ func TestDashAlertQueryMigration(t *testing.T) {
 			setupLegacyAlertsTables(t, x, nil, tt.alerts, folders, dashes)
 
 			err := service.Run(context.Background())
+			if len(tt.expErrors) > 0 {
+				for _, expErr := range tt.expErrors {
+					require.ErrorContains(t, err, expErr)
+				}
+				return
+			}
 			require.NoError(t, err)
 
 			for orgId, expected := range tt.expected {
@@ -1272,21 +1231,6 @@ func getDashboard(t *testing.T, x *xorm.Engine, orgId int64, uid string) *dashbo
 	}
 
 	return dashes[0]
-}
-
-func NewMigrationService(t *testing.T, sqlStore *sqlstore.SQLStore, cfg *setting.Cfg) *MigrationService {
-	migrationStore := migStore.NewTestMigrationStore(t, sqlStore, cfg)
-
-	ms, err := ProvideService(
-		serverlock.ProvideService(sqlStore, tracing.NewFakeTracer()),
-		cfg,
-		sqlStore,
-		migrationStore,
-		fake_secrets.NewFakeSecretsService(),
-		migrationStore.DashboardPermissions(),
-	)
-	require.NoError(t, err)
-	return ms
 }
 
 func pointer[T any](b T) *T {

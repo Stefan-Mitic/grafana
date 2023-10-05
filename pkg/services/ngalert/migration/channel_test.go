@@ -89,8 +89,7 @@ func TestCreateRoute(t *testing.T) {
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			res, err := createRoute(tt.channel, tt.recv.Name)
-			require.NoError(t, err)
+			res := createRoute(tt.channel, tt.recv.Name)
 
 			// Order of nested routes is not guaranteed.
 			cOpt := []cmp.Option{
@@ -388,8 +387,8 @@ func TestSetupAlertmanagerConfig(t *testing.T) {
 					}},
 					Receivers: []*apimodels.PostableApiReceiver{
 						{Receiver: config.Receiver{Name: "autogen-contact-point-default"}, PostableGrafanaReceivers: apimodels.PostableGrafanaReceivers{GrafanaManagedReceivers: []*apimodels.PostableGrafanaReceiver{}}},
-						createPostableApiReceiver("uid2", "notifier2", []string{"notifier2"}),
 						createPostableApiReceiver("uid1", "notifier1", []string{"notifier1"}),
+						createPostableApiReceiver("uid2", "notifier2", []string{"notifier2"}),
 					},
 				},
 			},
@@ -437,7 +436,10 @@ func TestSetupAlertmanagerConfig(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			opts := []cmp.Option{cmpopts.IgnoreUnexported(apimodels.PostableUserConfig{}, labels.Matcher{})}
+			opts := []cmp.Option{
+				cmpopts.IgnoreUnexported(apimodels.PostableUserConfig{}, labels.Matcher{}),
+				cmpopts.SortSlices(func(a, b *apimodels.Route) bool { return a.Receiver < b.Receiver }),
+			}
 			if !cmp.Equal(tt.amConfig, amConfig, opts...) {
 				t.Errorf("Unexpected Config: %v", cmp.Diff(tt.amConfig, amConfig, opts...))
 			}

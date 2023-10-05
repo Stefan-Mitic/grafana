@@ -11,6 +11,7 @@ import (
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/log/logtest"
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
+	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/ngalert/store"
 )
@@ -127,13 +128,21 @@ func TestAddMigrationInfo(t *testing.T) {
 }
 
 func TestMakeAlertRule(t *testing.T) {
-	dashboard := createDashboard(t, 1, 1, "dashboard", 0, nil)
+	info := migmodels.DashboardUpgradeInfo{
+		DashboardID:   1,
+		DashboardUID:  "dashboarduid",
+		DashboardName: "dashboardname",
+		FolderUID:     "folderuid",
+		FolderName:    "foldername",
+		NewFolderUID:  "ewfolderuid",
+		NewFolderName: "newfoldername",
+	}
 	t.Run("when mapping rule names", func(t *testing.T) {
 		t.Run("leaves basic names untouched", func(t *testing.T) {
 			da := createTestDashAlert()
 			cnd := createTestDashAlertCondition()
 
-			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
+			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, info, nil)
 
 			require.NoError(t, err)
 			require.Equal(t, da.Name, ar.Title)
@@ -144,7 +153,7 @@ func TestMakeAlertRule(t *testing.T) {
 			da.Name = strings.Repeat("a", store.AlertDefinitionMaxTitleLength+1)
 			cnd := createTestDashAlertCondition()
 
-			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
+			ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, info, nil)
 
 			require.NoError(t, err)
 			require.Len(t, ar.Title, store.AlertDefinitionMaxTitleLength)
@@ -155,7 +164,7 @@ func TestMakeAlertRule(t *testing.T) {
 		da := createTestDashAlert()
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, info, nil)
 		require.NoError(t, err)
 		require.False(t, ar.IsPaused)
 	})
@@ -165,7 +174,7 @@ func TestMakeAlertRule(t *testing.T) {
 		da.State = "paused"
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, info, nil)
 		require.NoError(t, err)
 		require.True(t, ar.IsPaused)
 	})
@@ -175,7 +184,7 @@ func TestMakeAlertRule(t *testing.T) {
 		da.Settings.Set("noDataState", uuid.NewString())
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, info, nil)
 		require.Nil(t, err)
 		require.Equal(t, models.NoData, ar.NoDataState)
 	})
@@ -185,7 +194,7 @@ func TestMakeAlertRule(t *testing.T) {
 		da.Settings.Set("executionErrorState", uuid.NewString())
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, info, nil)
 		require.Nil(t, err)
 		require.Equal(t, models.ErrorErrState, ar.ExecErrState)
 	})
@@ -209,10 +218,10 @@ func TestMakeAlertRule(t *testing.T) {
 		da.PanelID = 42
 		cnd := createTestDashAlertCondition()
 
-		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder", nil)
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, info, nil)
 
 		require.NoError(t, err)
-		require.Equal(t, fmt.Sprintf("%s - %d", dashboard.Title, da.PanelID), ar.RuleGroup)
+		require.Equal(t, fmt.Sprintf("%s - %d", info.DashboardName, da.PanelID), ar.RuleGroup)
 	})
 }
 

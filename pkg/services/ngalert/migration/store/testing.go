@@ -40,7 +40,7 @@ func (ms *migrationStore) DashboardPermissions() accesscontrol.DashboardPermissi
 	return ms.dashboardPermissions
 }
 
-func NewTestMigrationStore(t *testing.T, sqlStore *sqlstore.SQLStore, cfg *setting.Cfg) *migrationStore {
+func NewTestMigrationStore(t testing.TB, sqlStore *sqlstore.SQLStore, cfg *setting.Cfg) *migrationStore {
 	if cfg == nil {
 		cfg = setting.NewCfg()
 	}

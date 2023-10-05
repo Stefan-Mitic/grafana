@@ -4,13 +4,19 @@ import (
 	"testing"
 
 	pb "github.com/prometheus/alertmanager/silence/silencepb"
+	"github.com/stretchr/testify/require"
 
 	"github.com/grafana/grafana/pkg/infra/log/logtest"
+	"github.com/grafana/grafana/pkg/infra/serverlock"
+	"github.com/grafana/grafana/pkg/infra/tracing"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
 	"github.com/grafana/grafana/pkg/services/folder"
 	migmodels "github.com/grafana/grafana/pkg/services/ngalert/migration/models"
+	migStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
 	fake_secrets "github.com/grafana/grafana/pkg/services/secrets/fakes"
+	"github.com/grafana/grafana/pkg/services/sqlstore"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
+	"github.com/grafana/grafana/pkg/setting"
 )
 
 // newTestOrgMigration generates an empty OrgMigration to use in tests.
@@ -39,4 +45,19 @@ func newTestOrgMigration(t *testing.T, orgID int64) *OrgMigration {
 			OrgID: orgID,
 		},
 	}
+}
+
+func NewTestMigrationService(t testing.TB, sqlStore *sqlstore.SQLStore, cfg *setting.Cfg) *MigrationService {
+	migrationStore := migStore.NewTestMigrationStore(t, sqlStore, cfg)
+
+	ms, err := ProvideService(
+		serverlock.ProvideService(sqlStore, tracing.NewFakeTracer()),
+		cfg,
+		sqlStore,
+		migrationStore,
+		fake_secrets.NewFakeSecretsService(),
+		migrationStore.DashboardPermissions(),
+	)
+	require.NoError(t, err)
+	return ms
 }
