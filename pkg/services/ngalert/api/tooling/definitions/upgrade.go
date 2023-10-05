@@ -6,7 +6,7 @@ import (
 	legacymodels "github.com/grafana/grafana/pkg/services/alerting/models"
 )
 
-// swagger:route GET /api/v1/upgrade upgrade RouteGetOrgUpgrade
+// swagger:route GET /api/v1/upgrade/org upgrade RouteGetOrgUpgrade
 //
 // Get existing alerting upgrade for current organization.
 //
@@ -16,9 +16,9 @@ import (
 //     Responses:
 //       200: OrgMigrationSummary
 
-// swagger:route POST /api/v1/upgrade upgrade RoutePostUpgradeOrg
+// swagger:route POST /api/v1/upgrade/org upgrade RoutePostUpgradeOrg
 //
-// Upgrade alerting for current organization.
+// Upgrade all legacy alerts for current organization.
 //
 //     Produces:
 //     - application/json
@@ -26,7 +26,7 @@ import (
 //     Responses:
 //       200: OrgMigrationSummary
 
-// swagger:route DELETE /api/v1/upgrade upgrade RouteDeleteOrgUpgrade
+// swagger:route DELETE /api/v1/upgrade/org upgrade RouteDeleteOrgUpgrade
 //
 // Delete existing alerting upgrade for current organization.
 //
@@ -35,6 +35,42 @@ import (
 //
 //     Responses:
 //       200: Ack
+
+// swagger:route POST /api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID} upgrade RoutePostUpgradeAlert
+//
+// Upgrade single legacy dashboard alert.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       200: DashboardUpgrade
+
+// swagger:route POST /api/v1/upgrade/dashboard/{DashboardID} upgrade RoutePostUpgradeDashboard
+//
+// Upgrade all legacy dashboard alerts on a dashboard.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       200: DashboardUpgrade
+
+// swagger:parameters RoutePostUpgradeAlert RoutePostUpgradeDashboard
+type DashboardParam struct {
+	// Dashboard ID of dashboard alert.
+	// in:path
+	// required:true
+	DashboardID string
+}
+
+// swagger:parameters RoutePostUpgradeAlert
+type PanelParam struct {
+	// Panel ID of dashboard alert.
+	// in:path
+	// required:true
+	PanelID string
+}
 
 // swagger:model
 type OrgMigrationSummary struct {
@@ -56,11 +92,36 @@ type DashboardUpgrade struct {
 	NewFolderName  string       `json:"newFolderName,omitempty"`
 	Provisioned    bool         `json:"provisioned"`
 	Errors         []string     `json:"errors"`
+	Warnings       []string     `json:"warnings"`
 }
 
-func (du *DashboardUpgrade) SetErrors(alerts []*legacymodels.Alert, err error) {
-	du.Errors = append(du.Errors, err.Error())
-	du.AddAlertErrors(err, alerts...)
+func (oms *OrgMigrationSummary) GetDashboardUpgrade(dashboardId int64) *DashboardUpgrade {
+	for _, du := range oms.MigratedDashboards {
+		if du.DashboardID == dashboardId {
+			return du
+		}
+	}
+	return nil
+}
+
+func (oms *OrgMigrationSummary) PopDashboardUpgrade(dashboardId int64) *DashboardUpgrade {
+	for i, du := range oms.MigratedDashboards {
+		if du.DashboardID == dashboardId {
+			oms.MigratedDashboards = append(oms.MigratedDashboards[:i], oms.MigratedDashboards[i+1:]...)
+			return du
+		}
+	}
+	return nil
+}
+
+func (du *DashboardUpgrade) PopAlertPairByPanelID(panelID int64) *AlertPair {
+	for i, pair := range du.MigratedAlerts {
+		if pair.LegacyAlert.PanelID == panelID {
+			du.MigratedAlerts = append(du.MigratedAlerts[:i], du.MigratedAlerts[i+1:]...)
+			return pair
+		}
+	}
+	return nil
 }
 
 func (du *DashboardUpgrade) SetDashboard(uid, name string) {

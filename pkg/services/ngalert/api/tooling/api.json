@@ -106,9 +106,6 @@
     },
     "legacyAlert": {
      "$ref": "#/definitions/LegacyAlert"
-    },
-    "provisioned": {
-     "type": "boolean"
     }
    },
    "type": "object"
@@ -316,12 +313,6 @@
      ],
      "type": "string"
     },
-    "folderName": {
-     "type": "string"
-    },
-    "folderUid": {
-     "type": "string"
-    },
     "for": {
      "$ref": "#/definitions/Duration"
     },
@@ -357,6 +348,9 @@
     }
    },
    "type": "object"
+  },
+  "AlertStateType": {
+   "type": "string"
   },
   "AlertingFileExport": {
    "properties": {
@@ -697,6 +691,54 @@
    "format": "uint8",
    "title": "CounterResetHint contains the known information about a counter reset,",
    "type": "integer"
+  },
+  "DashboardUpgrade": {
+   "properties": {
+    "dashboardId": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "dashboardName": {
+     "type": "string"
+    },
+    "dashboardUid": {
+     "type": "string"
+    },
+    "errors": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "folderName": {
+     "type": "string"
+    },
+    "folderUid": {
+     "type": "string"
+    },
+    "migratedAlerts": {
+     "items": {
+      "$ref": "#/definitions/AlertPair"
+     },
+     "type": "array"
+    },
+    "newFolderName": {
+     "type": "string"
+    },
+    "newFolderUid": {
+     "type": "string"
+    },
+    "provisioned": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    }
+   },
+   "type": "object"
   },
   "DataLink": {
    "description": "DataLink define what",
@@ -1931,19 +1973,7 @@
      "format": "int64",
      "type": "integer"
     },
-    "dashboardName": {
-     "type": "string"
-    },
-    "dashboardUid": {
-     "type": "string"
-    },
     "executionError": {
-     "type": "string"
-    },
-    "folderName": {
-     "type": "string"
-    },
-    "folderUid": {
      "type": "string"
     },
     "for": {
@@ -2335,15 +2365,15 @@
      },
      "type": "array"
     },
-    "migratedAlerts": {
-     "items": {
-      "$ref": "#/definitions/AlertPair"
-     },
-     "type": "array"
-    },
     "migratedChannels": {
      "items": {
       "$ref": "#/definitions/ContactPair"
+     },
+     "type": "array"
+    },
+    "migratedDashboards": {
+     "items": {
+      "$ref": "#/definitions/DashboardUpgrade"
      },
      "type": "array"
     },
@@ -4508,12 +4538,14 @@
    "type": "object"
   },
   "gettableAlerts": {
+   "description": "GettableAlerts gettable alerts",
    "items": {
     "$ref": "#/definitions/gettableAlert"
    },
    "type": "array"
   },
   "gettableSilence": {
+   "description": "GettableSilence gettable silence",
    "properties": {
     "comment": {
      "description": "comment",
@@ -4562,6 +4594,7 @@
    "type": "object"
   },
   "gettableSilences": {
+   "description": "GettableSilences gettable silences",
    "items": {
     "$ref": "#/definitions/gettableSilence"
    },
@@ -4711,6 +4744,7 @@
    "type": "array"
   },
   "postableSilence": {
+   "description": "PostableSilence postable silence",
    "properties": {
     "comment": {
      "description": "comment",

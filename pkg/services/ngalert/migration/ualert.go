@@ -65,6 +65,7 @@ func newDashboardUpgrade(dashboardId int64) *apiModels.DashboardUpgrade {
 		NewFolderName:  "",
 		Provisioned:    false,
 		Errors:         nil,
+		Warnings:       nil,
 	}
 }
 
@@ -178,6 +179,87 @@ func (om *orgMigration) migrateAlert(ctx context.Context, l log.Logger, alert *l
 	return rule, nil
 }
 
+func (om *orgMigration) migrateDashboard(ctx context.Context, dashID int64, alerts []*legacymodels.Alert) (*apiModels.DashboardUpgrade, error) {
+	du := newDashboardUpgrade(dashID)
+	dash, err := om.migrationStore.GetDashboard(ctx, om.orgID, dashID)
+	if err != nil {
+		return du, fmt.Errorf("failed to get dashboard: %w", err)
+	}
+	du.SetDashboard(dash.UID, dash.Title)
+	l := om.log.New("dashboardTitle", dash.Title, "dashboardUID", dash.UID)
+
+	provisioned, err := om.migrationStore.IsProvisioned(ctx, om.orgID, dash.UID)
+	if err != nil {
+		l.Warn("failed to get provisioned status for dashboard", "error", err)
+		du.Warnings = append(du.Warnings, fmt.Errorf("failed to get provisioned status: %w", err).Error())
+	}
+	du.Provisioned = provisioned
+
+	// dashFolder can be nil if the dashboard's folder is missing and the migrated folder is general alerting.
+	dashFolder, migratedFolder, err := om.folderHelper.getOrCreateMigratedFolder(ctx, l, dash)
+	if dashFolder != nil {
+		du.SetFolder(dashFolder.UID, dashFolder.Title)
+	}
+	if err != nil {
+		return du, fmt.Errorf("failed to get or create folder for new alert rule: %w", err)
+	}
+	du.SetNewFolder(migratedFolder.UID, migratedFolder.Title)
+	l = l.New("newFolderUID", migratedFolder.UID, "newFolderName", migratedFolder.Title)
+	if dashFolder != nil {
+		l = l.New("folderUID", dashFolder.UID, "folderName", dashFolder.Title)
+	}
+
+	if dashFolder == nil {
+		du.Warnings = append(du.Warnings, "dashboard alerts moved to general alerting folder during upgrade: original folder not found")
+	} else if dashFolder.UID != migratedFolder.UID {
+		du.Warnings = append(du.Warnings, "dashboard alerts moved to new folder during upgrade: folder permission changes were needed")
+	}
+
+	// Here we ensure that the alert rule title is unique within the folder.
+	if _, ok := om.alertRuleTitleDedup[migratedFolder.UID]; !ok {
+		om.alertRuleTitleDedup[migratedFolder.UID] = deduplicator{
+			set:             make(map[string]struct{}),
+			caseInsensitive: om.dialect.SupportEngine(),
+			maxLen:          store.AlertDefinitionMaxTitleLength,
+		}
+	}
+	dedupSet := om.alertRuleTitleDedup[migratedFolder.UID]
+
+	rules := make([]models.AlertRule, 0, len(alerts))
+	for _, da := range alerts {
+		al := l.New("ruleID", da.ID, "ruleName", da.Name)
+		alertRule, err := om.migrateAlert(ctx, al, da, dash, migratedFolder)
+		if err != nil {
+			al.Warn("failed to migrate alert", "error", err)
+			du.AddAlertErrors(err, da)
+			continue
+		}
+
+		if dedupSet.contains(alertRule.Title) {
+			dedupedName := dedupSet.deduplicate(alertRule.Title)
+			al.Warn("duplicate alert rule name detected, renaming", "old_name", alertRule.Title, "new_name", dedupedName)
+			alertRule.Title = dedupedName
+		}
+		dedupSet.add(alertRule.Title)
+		om.silences = append(om.silences, createSilences(al, da, alertRule)...)
+		rules = append(rules, *alertRule)
+
+		pair := du.AddAlert(da)
+		attachAlertRule(pair, alertRule)
+	}
+
+	if len(rules) > 0 {
+		l.Info("Inserting migrated alert rules", "count", len(rules), "provisioned", provisioned)
+		err = om.migrationStore.InsertAlertRules(ctx, om.orgID, rules, provisioned)
+		if err != nil {
+			du.MigratedAlerts = nil // Don't want duplicates.
+			return du, fmt.Errorf("failed to insert alert rules: %w", err)
+		}
+	}
+
+	return du, nil
+}
+
 func (ms *MigrationService) migrateOrg(ctx context.Context, orgID int64) (*orgMigration, error) {
 	migrated, err := ms.migrationStore.IsMigrated(ctx, orgID)
 	if err != nil {
@@ -190,94 +272,30 @@ func (ms *MigrationService) migrateOrg(ctx context.Context, orgID int64) (*orgMi
 	om := ms.newOrgMigration(orgID)
 	om.log.Info("migrating alerts for organisation")
 
-	mappedAlerts, cnt, err := ms.migrationStore.GetDashboardAlerts(ctx, orgID)
+	mappedAlerts, cnt, err := ms.migrationStore.GetOrgDashboardAlerts(ctx, orgID)
 	if err != nil {
 		om.summary.Errors = append(om.summary.Errors, err.Error())
 	}
 	om.log.Info("Alerts found to migrate", "alerts", cnt)
 
 	for dashID, alerts := range mappedAlerts {
-		du := newDashboardUpgrade(dashID)
+		du, err := om.migrateDashboard(ctx, dashID, alerts)
+		if err != nil {
+			l := om.log.New(
+				"dashboardTitle", du.DashboardName,
+				"dashboardUID", du.DashboardUID,
+				"newFolderName", du.NewFolderName,
+				"newFolderUID", du.NewFolderUID,
+				"folderUID", du.FolderUID,
+				"folderName", du.FolderName,
+			)
+			l.Warn("failed to migrate dashboard", "alertCount", len(alerts), "error", err)
+			if du == nil {
+				du = newDashboardUpgrade(dashID)
+			}
+			du.AddAlertErrors(err, alerts...)
+		}
 		om.summary.MigratedDashboards = append(om.summary.MigratedDashboards, du)
-		dash, err := ms.migrationStore.GetDashboard(ctx, orgID, dashID)
-		if err != nil {
-			du.SetErrors(alerts, fmt.Errorf("failed to get dashboard: %w", err))
-			if errors.Is(err, dashboards.ErrDashboardNotFound) {
-				om.log.Warn(fmt.Sprintf("%d alerts found but have an unknown dashboard, skipping", len(alerts)), "dashboardID", dashID)
-				continue
-			}
-			continue
-		}
-		du.SetDashboard(dash.UID, dash.Title)
-		l := om.log.New("dashboardTitle", dash.Title, "dashboardUID", dash.UID)
-
-		provisioned, err := ms.migrationStore.IsProvisioned(ctx, orgID, dash.UID)
-		if err != nil {
-			l.Warn("failed to get provisioned status for dashboard", "error", err)
-			du.Errors = append(du.Errors, fmt.Errorf("failed to get provisioned status: %w", err).Error())
-		}
-		du.Provisioned = provisioned
-
-		// dashFolder can be nil if the dashboard's folder is missing and the migrated folder is general alerting.
-		dashFolder, migratedFolder, err := om.folderHelper.getOrCreateMigratedFolder(ctx, l, dash)
-		if dashFolder != nil {
-			du.SetFolder(dashFolder.UID, dashFolder.Title)
-		}
-		if err != nil {
-			du.SetErrors(alerts, err)
-			continue
-		}
-		du.SetNewFolder(migratedFolder.UID, migratedFolder.Title)
-		l = l.New("newFolderUID", migratedFolder.UID, "newFolderName", migratedFolder.Title)
-		if dashFolder != nil {
-			l = l.New("folderUID", dashFolder.UID, "folderName", dashFolder.Title)
-		}
-
-		if dashFolder == nil {
-			du.Errors = append(du.Errors, "dashboard alerts moved to general alerting folder during upgrade: original folder not found")
-		} else if dashFolder.UID != migratedFolder.UID {
-			du.Errors = append(du.Errors, "dashboard alerts moved to new folder during upgrade: folder permission changes were needed")
-		}
-
-		// Here we ensure that the alert rule title is unique within the folder.
-		if _, ok := om.alertRuleTitleDedup[migratedFolder.UID]; !ok {
-			om.alertRuleTitleDedup[migratedFolder.UID] = deduplicator{
-				set:             make(map[string]struct{}),
-				caseInsensitive: om.dialect.SupportEngine(),
-				maxLen:          store.AlertDefinitionMaxTitleLength,
-			}
-		}
-		dedupSet := om.alertRuleTitleDedup[migratedFolder.UID]
-
-		rules := make([]models.AlertRule, 0, len(alerts))
-		for _, da := range alerts {
-			al := l.New("ruleID", da.ID, "ruleName", da.Name)
-			alertRule, err := om.migrateAlert(ctx, al, da, dash, migratedFolder)
-			if err != nil {
-				du.AddAlertErrors(err, da)
-				continue
-			}
-
-			if dedupSet.contains(alertRule.Title) {
-				dedupedName := dedupSet.deduplicate(alertRule.Title)
-				al.Warn("duplicate alert rule name detected, renaming", "old_name", alertRule.Title, "new_name", dedupedName)
-				alertRule.Title = dedupedName
-			}
-			dedupSet.add(alertRule.Title)
-			om.silences = append(om.silences, createSilences(al, da, alertRule)...)
-			rules = append(rules, *alertRule)
-
-			pair := du.AddAlert(da)
-			attachAlertRule(pair, alertRule)
-		}
-
-		if len(rules) > 0 {
-			l.Info("Inserting migrated alert rules", "count", len(rules), "provisioned", provisioned)
-			err = ms.migrationStore.InsertAlertRules(ctx, orgID, rules, provisioned)
-			if err != nil {
-				om.summary.Errors = append(om.summary.Errors, fmt.Errorf("failed to insert alert rules: %w", err).Error())
-			}
-		}
 	}
 
 	amConfig, err := om.setupAlertmanagerConfigs(ctx)

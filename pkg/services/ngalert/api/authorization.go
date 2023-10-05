@@ -56,11 +56,15 @@ func (api *API) authorize(method, path string) web.Handler {
 		eval = ac.EvalPermission(ac.ActionAlertingRuleRead)
 
 	// Grafana unified alerting upgrade paths
-	case http.MethodGet + "/api/v1/upgrade":
+	case http.MethodGet + "/api/v1/upgrade/org":
 		return middleware.ReqOrgAdmin
-	case http.MethodPost + "/api/v1/upgrade":
+	case http.MethodPost + "/api/v1/upgrade/org":
 		return middleware.ReqOrgAdmin
-	case http.MethodDelete + "/api/v1/upgrade":
+	case http.MethodDelete + "/api/v1/upgrade/org":
+		return middleware.ReqOrgAdmin
+	case http.MethodPost + "/api/v1/upgrade/dashboard/{DashboardID}":
+		return middleware.ReqOrgAdmin
+	case http.MethodPost + "/api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID}":
 		return middleware.ReqOrgAdmin
 
 	// Grafana, Prometheus-compatible Paths

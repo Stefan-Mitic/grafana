@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	"github.com/grafana/grafana/pkg/api/response"
 	"github.com/grafana/grafana/pkg/infra/log"
@@ -13,6 +14,8 @@ import (
 )
 
 type UpgradeService interface {
+	MigrateAlert(ctx context.Context, orgID int64, dashboardID int64, panelID int64) (*apiModels.DashboardUpgrade, error)
+	MigrateDashboardAlerts(ctx context.Context, orgID int64, dashboardID int64) (*apiModels.DashboardUpgrade, error)
 	MigrateOrg(ctx context.Context, orgID int64) (*apiModels.OrgMigrationSummary, error)
 	GetOrgMigrationSummary(ctx context.Context, orgID int64) (*apiModels.OrgMigrationSummary, error)
 	RevertOrg(ctx context.Context, orgID int64) error
@@ -74,4 +77,45 @@ func (srv *UpgradeSrv) RouteDeleteOrgUpgrade(c *contextmodel.ReqContext) respons
 		return response.Error(http.StatusInternalServerError, "Server error", err)
 	}
 	return response.JSON(http.StatusOK, util.DynMap{"message": "Grafana Alerting resources deleted for this organization."})
+}
+
+func (srv *UpgradeSrv) RoutePostUpgradeAlert(c *contextmodel.ReqContext, dashboardIdParam string, panelIdParam string) response.Response {
+	// If UA is enabled, we don't want to allow the user to use this endpoint to upgrade anymore.
+	if srv.cfg.UnifiedAlerting.IsEnabled() {
+		return response.Error(http.StatusForbidden, "This endpoint is not available with UA enabled.", nil)
+	}
+
+	dashboardId, err := strconv.ParseInt(dashboardIdParam, 10, 64)
+	if err != nil {
+		return ErrResp(http.StatusBadRequest, err, "failed to parse dashboardId")
+	}
+
+	panelId, err := strconv.ParseInt(panelIdParam, 10, 64)
+	if err != nil {
+		return ErrResp(http.StatusBadRequest, err, "failed to parse panelId")
+	}
+
+	dashUpgrade, err := srv.upgradeService.MigrateAlert(c.Req.Context(), c.OrgID, dashboardId, panelId)
+	if err != nil {
+		return response.Error(http.StatusInternalServerError, "Server error", err)
+	}
+	return response.JSON(http.StatusOK, dashUpgrade)
+}
+
+func (srv *UpgradeSrv) RoutePostUpgradeDashboard(c *contextmodel.ReqContext, dashboardIdParam string) response.Response {
+	// If UA is enabled, we don't want to allow the user to use this endpoint to upgrade anymore.
+	if srv.cfg.UnifiedAlerting.IsEnabled() {
+		return response.Error(http.StatusForbidden, "This endpoint is not available with UA enabled.", nil)
+	}
+
+	dashboardId, err := strconv.ParseInt(dashboardIdParam, 10, 64)
+	if err != nil {
+		return ErrResp(http.StatusBadRequest, err, "failed to parse dashboardId")
+	}
+
+	dashUpgrade, err := srv.upgradeService.MigrateDashboardAlerts(c.Req.Context(), c.OrgID, dashboardId)
+	if err != nil {
+		return response.Error(http.StatusInternalServerError, "Server error", err)
+	}
+	return response.JSON(http.StatusOK, dashUpgrade)
 }

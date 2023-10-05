@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/kvstore"
@@ -33,13 +34,15 @@ import (
 type Store interface {
 	InsertAlertRules(ctx context.Context, orgID int64, rules []models.AlertRule, provisioned bool) error
 	SaveAlertmanagerConfiguration(ctx context.Context, orgID int64, amConfig *apimodels.PostableUserConfig) error
-	DeleteMigratedFolders(ctx context.Context, orgID int64) error
 	GetDashboard(ctx context.Context, orgID int64, id int64) (*dashboards.Dashboard, error)
 	GetAllOrgs(ctx context.Context) ([]*org.OrgDTO, error)
 	GetDatasource(ctx context.Context, datasourceID int64, user identity.Requester) (*datasources.DataSource, error)
 	GetAlertNotificationUidWithId(ctx context.Context, orgID int64, id int64) (string, error)
 	GetNotificationChannels(ctx context.Context, orgID int64) ([]legacymodels.AlertNotification, error)
-	GetDashboardAlerts(ctx context.Context, orgID int64) (map[int64][]*legacymodels.Alert, int, error)
+
+	GetDashboardAlert(ctx context.Context, orgID int64, dashboardID int64, panelID int64) (*legacymodels.Alert, error)
+	GetDashboardAlerts(ctx context.Context, orgID int64, dashboardID int64) ([]*legacymodels.Alert, error)
+	GetOrgDashboardAlerts(ctx context.Context, orgID int64) (map[int64][]*legacymodels.Alert, int, error)
 
 	GetDashboardPermissions(ctx context.Context, user identity.Requester, resourceID string) ([]accesscontrol.ResourcePermission, error)
 	GetFolderPermissions(ctx context.Context, user identity.Requester, resourceID string) ([]accesscontrol.ResourcePermission, error)
@@ -48,8 +51,6 @@ type Store interface {
 	GetFolder(ctx context.Context, cmd *folder.GetFolderQuery) (*folder.Folder, error)
 	CreateFolder(ctx context.Context, cmd *folder.CreateFolderCommand) (*folder.Folder, error)
 
-	//GetProvenance(ctx context.Context, o models.Provisionable, org int64) (models.Provenance, error)
-	//SetProvenance(ctx context.Context, o models.Provisionable, org int64, p models.Provenance) error
 	IsProvisioned(ctx context.Context, orgID int64, dashboardUID string) (bool, error)
 	UpsertProvenance(ctx context.Context, orgID int64, p models.Provenance, rules []models.AlertRule) error
 
@@ -60,6 +61,10 @@ type Store interface {
 
 	RevertOrg(ctx context.Context, orgID int64) error
 	RevertAllOrgs(ctx context.Context) error
+
+	DeleteAlertRules(ctx context.Context, orgID int64, alertRuleUIDs ...string) error
+	DeleteFolders(ctx context.Context, orgID int64, uids ...string) error
+	DeleteMigratedFolders(ctx context.Context, orgID int64) error
 }
 
 type migrationStore struct {
@@ -211,6 +216,7 @@ func (ms *migrationStore) SaveAlertmanagerConfiguration(ctx context.Context, org
 // revertPermissions are the permissions required for the background user to revert the migration.
 var revertPermissions = []accesscontrol.Permission{
 	{Action: dashboards.ActionFoldersDelete, Scope: dashboards.ScopeFoldersAll},
+	{Action: dashboards.ActionFoldersRead, Scope: dashboards.ScopeFoldersAll},
 }
 
 func (ms *migrationStore) RevertOrg(ctx context.Context, orgID int64) error {
@@ -219,7 +225,7 @@ func (ms *migrationStore) RevertOrg(ctx context.Context, orgID int64) error {
 			return err
 		}
 
-		if _, err := sess.Exec("DELETE FROM alert_rule_version WHERE rule_org_id = ?", orgID); err != nil { //TODO rule_org_id
+		if _, err := sess.Exec("DELETE FROM alert_rule_version WHERE rule_org_id = ?", orgID); err != nil {
 			return err
 		}
 
@@ -235,7 +241,7 @@ func (ms *migrationStore) RevertOrg(ctx context.Context, orgID int64) error {
 			return err
 		}
 
-		if _, err := sess.Exec("DELETE FROM alert_instance WHERE rule_org_id = ?", orgID); err != nil { //TODO rule_org_id
+		if _, err := sess.Exec("DELETE FROM alert_instance WHERE rule_org_id = ?", orgID); err != nil {
 			return err
 		}
 
@@ -315,22 +321,54 @@ func (ms *migrationStore) RevertAllOrgs(ctx context.Context) error {
 	})
 }
 
+// DeleteMigratedFolders deletes all folders created by the previous migration run for the given org. This includes all folder permissions.
+// If the folder is not empty of all descendants the operation will fail and return an error.
 func (ms *migrationStore) DeleteMigratedFolders(ctx context.Context, orgID int64) error {
 	summary, err := ms.GetOrgMigrationSummary(ctx, orgID)
 	if err != nil {
 		return err
 	}
-	if len(summary.CreatedFolders) == 0 {
+	return ms.DeleteFolders(ctx, orgID, summary.CreatedFolders...)
+}
+
+// DeleteFolders deletes the folders from the given orgs with the given UIDs. This includes all folder permissions.
+// If the folder is not empty of all descendants the operation will fail and return an error.
+func (ms *migrationStore) DeleteFolders(ctx context.Context, orgID int64, uids ...string) error {
+	if len(uids) == 0 {
 		return nil
 	}
+
 	usr := accesscontrol.BackgroundUser("ngalert_migration_revert", orgID, org.RoleAdmin, revertPermissions)
-	for _, folderUID := range summary.CreatedFolders {
+	for _, folderUID := range uids {
+		// Check if folder is empty. If not, we should not delete it.
+		countCmd := folder.GetDescendantCountsQuery{
+			UID:          &folderUID,
+			OrgID:        orgID,
+			SignedInUser: usr.(*user.SignedInUser),
+		}
+		count, err := ms.folderService.GetDescendantCounts(ctx, &countCmd)
+		if err != nil {
+			return err
+		}
+		var descendantCounts []string
+		for kind, cnt := range count {
+			if cnt > 0 {
+				descendantCounts = append(descendantCounts, fmt.Sprintf("%d %s", cnt, kind))
+				if err != nil {
+					return err
+				}
+			}
+		}
+		if len(descendantCounts) > 0 {
+			return fmt.Errorf("contains descendants: %s", strings.Join(descendantCounts, ", "))
+		}
+
 		cmd := folder.DeleteFolderCommand{
 			UID:          folderUID,
 			OrgID:        orgID,
 			SignedInUser: usr.(*user.SignedInUser),
 		}
-		err := ms.folderService.Delete(ctx, &cmd) // Also handles permissions and other related entities.
+		err = ms.folderService.Delete(ctx, &cmd) // Also handles permissions and other related entities.
 		if err != nil {
 			return err
 		}
@@ -391,8 +429,41 @@ func (ms *migrationStore) GetNotificationChannels(ctx context.Context, orgID int
 	return alertNotifications, nil
 }
 
-// GetDashboardAlerts loads all legacy dashboard alerts for the given org mapped by dashboard id.
-func (ms *migrationStore) GetDashboardAlerts(ctx context.Context, orgID int64) (map[int64][]*legacymodels.Alert, int, error) {
+// GetDashboardAlert loads a single legacy dashboard alerts for the given org and alert id.
+func (ms *migrationStore) GetDashboardAlert(ctx context.Context, orgID int64, dashboardID int64, panelID int64) (*legacymodels.Alert, error) {
+	var dashAlert legacymodels.Alert
+	err := ms.store.WithDbSession(ctx, func(sess *db.Session) error {
+		has, err := sess.SQL("select * from alert WHERE org_id = ? AND dashboard_id = ? AND panel_id = ?", orgID, dashboardID, panelID).Get(&dashAlert)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return fmt.Errorf("alert not found")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &dashAlert, nil
+}
+
+// GetDashboardAlerts loads all legacy dashboard alerts for the given org and dashboard.
+func (ms *migrationStore) GetDashboardAlerts(ctx context.Context, orgID int64, dashboardID int64) ([]*legacymodels.Alert, error) {
+	var dashAlerts []*legacymodels.Alert
+	err := ms.store.WithDbSession(ctx, func(sess *db.Session) error {
+		return sess.SQL("select * from alert WHERE org_id = ? AND dashboard_id = ?", orgID, dashboardID).Find(&dashAlerts)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return dashAlerts, nil
+}
+
+// GetOrgDashboardAlerts loads all legacy dashboard alerts for the given org mapped by dashboard id.
+func (ms *migrationStore) GetOrgDashboardAlerts(ctx context.Context, orgID int64) (map[int64][]*legacymodels.Alert, int, error) {
 	var dashAlerts []*legacymodels.Alert
 	err := ms.store.WithDbSession(ctx, func(sess *db.Session) error {
 		return sess.SQL("select * from alert WHERE org_id = ?", orgID).Find(&dashAlerts)
@@ -446,4 +517,9 @@ func (ms *migrationStore) UpsertProvenance(ctx context.Context, orgID int64, p m
 		result = append(result, &r)
 	}
 	return ms.alertingStore.UpsertProvenance(ctx, orgID, p, result...)
+}
+
+// DeleteAlertRules deletes alert rules in a given org by their UIDs.
+func (ms *migrationStore) DeleteAlertRules(ctx context.Context, orgID int64, alertRuleUIDs ...string) error {
+	return ms.alertingStore.DeleteAlertRulesByUID(ctx, orgID, alertRuleUIDs...)
 }

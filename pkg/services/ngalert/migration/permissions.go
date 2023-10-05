@@ -122,7 +122,7 @@ func (fh *folderHelper) getOrCreateMigratedFolder(ctx context.Context, l log.Log
 		l.Info("dashboard has custom permissions, create a new folder for alerts.", "newFolder", folderName)
 		f, err := fh.createFolder(ctx, fh.orgID, folderName, newPerms)
 		if err != nil {
-			return dashFolder, nil, fmt.Errorf("failed to create folder: %w", err)
+			return dashFolder, nil, fmt.Errorf("failed to create new folder: %w", err)
 		}
 
 		// If the role is not managed or basic we don't attempt to migrate its permissions. This is because
@@ -367,7 +367,7 @@ func (fh *folderHelper) createFolder(ctx context.Context, orgID int64, title str
 		SignedInUser: getMigrationUser(orgID).(*user.SignedInUser),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to save: %w", err)
+		return nil, err
 	}
 
 	if len(newPerms) > 0 {

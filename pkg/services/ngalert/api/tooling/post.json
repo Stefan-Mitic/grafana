@@ -106,9 +106,6 @@
     },
     "legacyAlert": {
      "$ref": "#/definitions/LegacyAlert"
-    },
-    "provisioned": {
-     "type": "boolean"
     }
    },
    "type": "object"
@@ -316,12 +313,6 @@
      ],
      "type": "string"
     },
-    "folderName": {
-     "type": "string"
-    },
-    "folderUid": {
-     "type": "string"
-    },
     "for": {
      "$ref": "#/definitions/Duration"
     },
@@ -357,6 +348,9 @@
     }
    },
    "type": "object"
+  },
+  "AlertStateType": {
+   "type": "string"
   },
   "AlertingFileExport": {
    "properties": {
@@ -697,6 +691,54 @@
    "format": "uint8",
    "title": "CounterResetHint contains the known information about a counter reset,",
    "type": "integer"
+  },
+  "DashboardUpgrade": {
+   "properties": {
+    "dashboardId": {
+     "format": "int64",
+     "type": "integer"
+    },
+    "dashboardName": {
+     "type": "string"
+    },
+    "dashboardUid": {
+     "type": "string"
+    },
+    "errors": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "folderName": {
+     "type": "string"
+    },
+    "folderUid": {
+     "type": "string"
+    },
+    "migratedAlerts": {
+     "items": {
+      "$ref": "#/definitions/AlertPair"
+     },
+     "type": "array"
+    },
+    "newFolderName": {
+     "type": "string"
+    },
+    "newFolderUid": {
+     "type": "string"
+    },
+    "provisioned": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    }
+   },
+   "type": "object"
   },
   "DataLink": {
    "description": "DataLink define what",
@@ -1931,19 +1973,7 @@
      "format": "int64",
      "type": "integer"
     },
-    "dashboardName": {
-     "type": "string"
-    },
-    "dashboardUid": {
-     "type": "string"
-    },
     "executionError": {
-     "type": "string"
-    },
-    "folderName": {
-     "type": "string"
-    },
-    "folderUid": {
      "type": "string"
     },
     "for": {
@@ -2335,15 +2365,15 @@
      },
      "type": "array"
     },
-    "migratedAlerts": {
-     "items": {
-      "$ref": "#/definitions/AlertPair"
-     },
-     "type": "array"
-    },
     "migratedChannels": {
      "items": {
       "$ref": "#/definitions/ContactPair"
+     },
+     "type": "array"
+    },
+    "migratedDashboards": {
+     "items": {
+      "$ref": "#/definitions/DashboardUpgrade"
      },
      "type": "array"
     },
@@ -4109,6 +4139,7 @@
    "type": "object"
   },
   "URL": {
+   "description": "The general form represented is:\n\n[scheme:][//[userinfo@]host][/]path[?query][#fragment]\n\nURLs that do not start with a slash after the scheme are interpreted as:\n\nscheme:opaque[?query][#fragment]\n\nNote that the Path field is stored in decoded form: /%47%6f%2f becomes /Go/.\nA consequence is that it is impossible to tell which slashes in the Path were\nslashes in the raw URL and which were %2f. This distinction is rarely important,\nbut when it is, the code should use the EscapedPath method, which preserves\nthe original encoding of Path.\n\nThe RawPath field is an optional field which is only set when the default\nencoding of Path is different from the escaped path. See the EscapedPath method\nfor more details.\n\nURL's String method uses the EscapedPath method to obtain the path.",
    "properties": {
     "ForceQuery": {
      "type": "boolean"
@@ -4144,7 +4175,7 @@
      "$ref": "#/definitions/Userinfo"
     }
    },
-   "title": "URL is a custom URL type that allows validation at configuration load time.",
+   "title": "A URL represents a parsed URL (technically, a URI reference).",
    "type": "object"
   },
   "Userinfo": {
@@ -4571,6 +4602,7 @@
    "type": "array"
   },
   "integration": {
+   "description": "Integration integration",
    "properties": {
     "lastNotifyAttempt": {
      "description": "A timestamp indicating the last attempt to deliver a notification regardless of the outcome.\nFormat: date-time",
@@ -4751,6 +4783,7 @@
    "type": "object"
   },
   "receiver": {
+   "description": "Receiver receiver",
    "properties": {
     "active": {
      "description": "active",
@@ -7805,7 +7838,72 @@
     ]
    }
   },
-  "/api/v1/upgrade": {
+  "/api/v1/upgrade/dashboard/{DashboardID}": {
+   "post": {
+    "operationId": "RoutePostUpgradeDashboard",
+    "parameters": [
+     {
+      "description": "Dashboard ID of dashboard alert.",
+      "in": "path",
+      "name": "DashboardID",
+      "required": true,
+      "type": "string"
+     }
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "responses": {
+     "200": {
+      "description": "DashboardUpgrade",
+      "schema": {
+       "$ref": "#/definitions/DashboardUpgrade"
+      }
+     }
+    },
+    "summary": "Upgrade all legacy dashboard alerts on a dashboard.",
+    "tags": [
+     "upgrade"
+    ]
+   }
+  },
+  "/api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID}": {
+   "post": {
+    "operationId": "RoutePostUpgradeAlert",
+    "parameters": [
+     {
+      "description": "Dashboard ID of dashboard alert.",
+      "in": "path",
+      "name": "DashboardID",
+      "required": true,
+      "type": "string"
+     },
+     {
+      "description": "Panel ID of dashboard alert.",
+      "in": "path",
+      "name": "PanelID",
+      "required": true,
+      "type": "string"
+     }
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "responses": {
+     "200": {
+      "description": "DashboardUpgrade",
+      "schema": {
+       "$ref": "#/definitions/DashboardUpgrade"
+      }
+     }
+    },
+    "summary": "Upgrade single legacy dashboard alert.",
+    "tags": [
+     "upgrade"
+    ]
+   }
+  },
+  "/api/v1/upgrade/org": {
    "delete": {
     "operationId": "RouteDeleteOrgUpgrade",
     "produces": [
@@ -7855,7 +7953,7 @@
       }
      }
     },
-    "summary": "Upgrade alerting for current organization.",
+    "summary": "Upgrade all legacy alerts for current organization.",
     "tags": [
      "upgrade"
     ]

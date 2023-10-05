@@ -26,3 +26,11 @@ func (f *UpgradeApiHandler) handleRouteGetOrgUpgrade(ctx *contextmodel.ReqContex
 func (f *UpgradeApiHandler) handleRouteDeleteOrgUpgrade(ctx *contextmodel.ReqContext) response.Response {
 	return f.svc.RouteDeleteOrgUpgrade(ctx)
 }
+
+func (f *UpgradeApiHandler) handleRoutePostUpgradeAlert(ctx *contextmodel.ReqContext, dashboardIdParam string, panelIdParam string) response.Response {
+	return f.svc.RoutePostUpgradeAlert(ctx, dashboardIdParam, panelIdParam)
+}
+
+func (f *UpgradeApiHandler) handleRoutePostUpgradeDashboard(ctx *contextmodel.ReqContext, dashboardIdParam string) response.Response {
+	return f.svc.RoutePostUpgradeDashboard(ctx, dashboardIdParam)
+}

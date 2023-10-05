@@ -2,6 +2,7 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,8 +11,11 @@ import (
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/serverlock"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
+	"github.com/grafana/grafana/pkg/services/dashboards"
+	"github.com/grafana/grafana/pkg/services/folder"
 	apiModels "github.com/grafana/grafana/pkg/services/ngalert/api/tooling/definitions"
 	migrationStore "github.com/grafana/grafana/pkg/services/ngalert/migration/store"
+	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/secrets"
 	"github.com/grafana/grafana/pkg/setting"
 )
@@ -55,89 +59,196 @@ func ProvideService(
 	}, nil
 }
 
-//// MigrateAlert migrates a single dashboard alert from legacy alerting to unified alerting.
-//func (ms *MigrationService) MigrateAlert(ctx context.Context, alert *legacymodels.Alert) (*ngmodels.AlertRule, error) {
-//	// TODO: WAY WAY TOO MESSY, needs to be summary logic needs cleaning up now before it gets more out of hand.
-//	ms.mtx.Lock()
-//	defer ms.mtx.Unlock()
-//
-//	om := ms.newOrgMigration(alert.OrgID)
-//	summary, err := om.migrationStore.GetOrgMigrationSummary(ctx, alert.OrgID)
-//	if err != nil {
-//		return nil, fmt.Errorf("failed to get org migration summary for org %d: %w", alert.OrgID, err)
-//	}
-//	om.summary = summary
-//
-//	// TODO: should run the same code here as org migration so that the summary is updated appropriately
-//	dash, err := ms.migrationStore.GetDashboard(ctx, alert.OrgID, alert.DashboardID)
-//	if err != nil {
-//		om.summary.MigratedAlerts = append(om.summary.MigratedAlerts, newAlertPair(alert, err))
-//		return nil, fmt.Errorf("failed to get dashboard [ID: %d]: %w", alert.DashboardID, err)
-//	}
-//	l := ms.log.New("ruleID", alert.ID, "ruleName", alert.Name, "dashboardTitle", dash.Title, "dashboardUID", dash.UID)
-//
-//	provisioned, err := ms.migrationStore.IsProvisioned(ctx, alert.OrgID, dash.UID)
-//	if err != nil {
-//		l.Warn("failed to get provisioned status for dashboard", "error", err)
-//		om.summary.Errors = append(om.summary.Errors, err.Error()) //TODO not sure we should be adding to the summary errors here.
-//	}
-//
-//	dashFolder, migratedFolder, err := om.folderHelper.getOrCreateMigratedFolder(ctx, l, dash)
-//	if err != nil {
-//		pair := newAlertPair(alert, err)
-//		pair.LegacyAlert.DashboardUID = dash.UID
-//		pair.LegacyAlert.DashboardName = dash.Title
-//		pair.Provisioned = provisioned
-//		if dashFolder != nil {
-//			pair.LegacyAlert.FolderUID = dashFolder.UID
-//			pair.LegacyAlert.FolderName = dashFolder.Title
-//		}
-//		om.summary.MigratedAlerts = append(om.summary.MigratedAlerts, pair)
-//		return nil, fmt.Errorf("failed to get or create folder for dashboard %s [ID: %d]: %w", dash.Title, dash.ID, err)
-//	}
-//	l = l.New("folderUID", migratedFolder.UID, "folderName", dashFolder.Title, "migratedFolderUID", migratedFolder.UID, "migratedFolderName", migratedFolder.Title)
-//
-//	pair := newAlertPair(alert, nil)
-//	pair.LegacyAlert.DashboardUID = dash.UID
-//	pair.LegacyAlert.DashboardName = dash.Title
-//	pair.Provisioned = provisioned
-//	if dashFolder != nil {
-//		pair.LegacyAlert.FolderUID = dashFolder.UID
-//		pair.LegacyAlert.FolderName = dashFolder.Title
-//	}
-//	alertRule, err := om.migrateAlert(ctx, l, alert, dash, migratedFolder)
-//	if err != nil {
-//		pair.Error = err.Error()
-//		om.summary.MigratedAlerts = append(om.summary.MigratedAlerts, pair)
-//		return nil, err
-//	}
-//
-//	//TODO deduplicate alert name, maybe do it this new way in the normal routine as well in case of existing alerts?
-//
-//	om.silences = append(om.silences, createSilences(l, alert, alertRule)...)
-//
-//	addAlertRule(pair, alertRule, alertRule.NamespaceUID, migratedFolder.Title)
-//	om.summary.MigratedAlerts = append(om.summary.MigratedAlerts, pair)
-//
-//	l.Info("Inserting migrated alert rules", "count", 1, "provisioned", provisioned)
-//	err = ms.migrationStore.InsertAlertRules(ctx, alert.OrgID, []ngmodels.AlertRule{*alertRule}, provisioned)
-//	if err != nil {
-//		om.summary.Errors = append(om.summary.Errors, fmt.Errorf("failed to insert alert rules: %w", err).Error())
-//	}
-//
-//	om.summary.CreatedFolders = make([]string, 0, len(om.folderHelper.createdFolders))
-//	for _, f := range om.folderHelper.createdFolders {
-//		// TODO: deduplicate.
-//		om.summary.CreatedFolders = append(om.summary.CreatedFolders, f.UID)
-//	}
-//
-//	err = ms.migrationStore.SetOrgMigrationSummary(ctx, alert.OrgID, om.summary)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	return alertRule, nil
-//}
+// MigrateAlert migrates a single dashboard alert from legacy alerting to unified alerting.
+func (ms *MigrationService) MigrateAlert(ctx context.Context, orgID int64, dashboardID int64, panelID int64) (*apiModels.DashboardUpgrade, error) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+	var du *apiModels.DashboardUpgrade
+	err := ms.store.InTransaction(ctx, func(ctx context.Context) error {
+		om := ms.newOrgMigration(orgID)
+		summary, err := om.migrationStore.GetOrgMigrationSummary(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+		}
+		om.summary = summary
+
+		alert, err := ms.migrationStore.GetDashboardAlert(ctx, orgID, dashboardID, panelID)
+		if err != nil {
+			return fmt.Errorf("failed to get alert: %w", err)
+		}
+
+		// Find existing alert upgrade.
+		du = om.summary.GetDashboardUpgrade(alert.DashboardID)
+		if du == nil {
+			du = newDashboardUpgrade(alert.DashboardID)
+		}
+		l := om.log.New(
+			"dashboardTitle", du.DashboardName,
+			"dashboardUID", du.DashboardUID,
+			"newFolderName", du.NewFolderName,
+			"newFolderUID", du.NewFolderUID,
+			"folderUID", du.FolderUID,
+			"folderName", du.FolderName,
+			"ruleID", alert.ID,
+			"ruleName", alert.Name,
+		)
+
+		// Cleanup.
+		if existingPair := du.PopAlertPairByPanelID(panelID); existingPair != nil {
+			// Alert already migrated, we delete existing and migrate again.
+			if existingPair.AlertRule != nil && existingPair.AlertRule.UID != "" {
+				err := om.migrationStore.DeleteAlertRules(ctx, orgID, existingPair.AlertRule.UID)
+				if err != nil {
+					return fmt.Errorf("failed to delete existing alert rule: %w", err)
+				}
+			}
+		}
+
+		dash, err := ms.migrationStore.GetDashboard(ctx, orgID, dashboardID)
+		if err != nil {
+			return fmt.Errorf("failed to get dashboard [ID: %d]: %w", dashboardID, err)
+		}
+
+		provisioned, err := ms.migrationStore.IsProvisioned(ctx, orgID, dash.UID)
+		if err != nil {
+			return fmt.Errorf("failed to get provisioned status: %w", err)
+		}
+		// If the provisioned status has changed, they need to use MigrateDashboard
+		if provisioned != du.Provisioned {
+			return fmt.Errorf("provisioned status has changed for dashboard %s, must re-upgrade entire dashboard", dash.UID)
+		}
+
+		// For the purposes of single alert migration, we assume nothing has changed W.R.T the migrated folder.
+		// Those changes will be handled, by MigrateDashboard.
+		f, err := om.folderHelper.migrationStore.GetFolder(ctx, &folder.GetFolderQuery{UID: &du.NewFolderUID, OrgID: orgID, SignedInUser: getMigrationUser(orgID)})
+		if err != nil {
+			if errors.Is(err, dashboards.ErrFolderNotFound) {
+				return fmt.Errorf("folder with uid %v not found", du.NewFolderUID)
+			}
+			return fmt.Errorf("failed to get folder with uid %s: %w", du.NewFolderUID, err)
+		}
+
+		alertRule, err := om.migrateAlert(ctx, l, alert, dash, f)
+		if err != nil {
+			du.AddAlertErrors(err, alert)
+			return nil
+		}
+
+		// We don't deduplicate alert rule titles in the single alert upgrade. Leave this to MigrateDashboard.
+
+		pair := du.AddAlert(alert)
+		attachAlertRule(pair, alertRule)
+
+		l.Info("Inserting migrated alert rules", "count", 1, "provisioned", provisioned)
+		err = ms.migrationStore.InsertAlertRules(ctx, orgID, []ngmodels.AlertRule{*alertRule}, provisioned)
+		if err != nil {
+			return fmt.Errorf("failed to insert alert rules: %w", err)
+		}
+
+		// We don't create new folders here, so no need to upgrade summary.CreatedFolders.
+		err = ms.migrationStore.SetOrgMigrationSummary(ctx, orgID, om.summary)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return du, nil
+}
+
+// MigrateDashboardAlerts migrates all legacy dashboard alerts from a single dashboard to unified alerting.
+func (ms *MigrationService) MigrateDashboardAlerts(ctx context.Context, orgID int64, dashboardID int64) (*apiModels.DashboardUpgrade, error) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+	var du *apiModels.DashboardUpgrade
+	err := ms.store.InTransaction(ctx, func(ctx context.Context) error {
+		om := ms.newOrgMigration(orgID)
+		summary, err := om.migrationStore.GetOrgMigrationSummary(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+		}
+		om.summary = summary
+
+		alerts, err := ms.migrationStore.GetDashboardAlerts(ctx, orgID, dashboardID)
+		if err != nil {
+			return fmt.Errorf("failed to get alerts: %w", err)
+		}
+
+		// Cleanup.
+		if existingDu := om.summary.PopDashboardUpgrade(dashboardID); existingDu != nil {
+			// Dashboard already migrated, we delete existing and migrate again.
+			ruleUids := make([]string, 0, len(existingDu.MigratedAlerts))
+			for _, pair := range existingDu.MigratedAlerts {
+				if pair.AlertRule != nil && pair.AlertRule.UID != "" {
+					ruleUids = append(ruleUids, pair.AlertRule.UID)
+				}
+			}
+			err := om.migrationStore.DeleteAlertRules(ctx, orgID, ruleUids...)
+			if err != nil {
+				return fmt.Errorf("failed to delete existing alert rule: %w", err)
+			}
+
+			// Delete newly created folder if one exists.
+			isNewAlertingFolder := existingDu.NewFolderUID != "" && existingDu.NewFolderUID != existingDu.FolderUID
+			if isNewAlertingFolder {
+				// Remove uid from summary.createdFolders
+				found := false
+				for i, uid := range om.summary.CreatedFolders {
+					if uid == existingDu.NewFolderUID {
+						om.summary.CreatedFolders = append(om.summary.CreatedFolders[:i], om.summary.CreatedFolders[i+1:]...)
+						found = true
+						break
+					}
+				}
+				// Safety check to prevent deleting folders that were not created by this migration.
+				if found {
+					err := om.folderHelper.migrationStore.DeleteFolders(ctx, orgID, existingDu.NewFolderUID)
+					if err != nil {
+						return fmt.Errorf("failed to delete folder '%s': %w", existingDu.NewFolderName, err)
+					}
+				}
+			}
+		}
+
+		newDu, err := om.migrateDashboard(ctx, dashboardID, alerts)
+		if err != nil {
+			l := om.log.New(
+				"dashboardTitle", newDu.DashboardName,
+				"dashboardUID", newDu.DashboardUID,
+				"newFolderName", newDu.NewFolderName,
+				"newFolderUID", newDu.NewFolderUID,
+				"folderUID", newDu.FolderUID,
+				"folderName", newDu.FolderName,
+			)
+			l.Warn("failed to migrate dashboard", "alertCount", len(alerts), "error", err)
+			if newDu == nil {
+				newDu = newDashboardUpgrade(dashboardID)
+			}
+			newDu.AddAlertErrors(err, alerts...)
+		}
+		om.summary.MigratedDashboards = append(om.summary.MigratedDashboards, newDu)
+
+		for _, f := range om.folderHelper.createdFolders {
+			om.summary.CreatedFolders = append(om.summary.CreatedFolders, f.UID)
+		}
+		err = ms.migrationStore.SetOrgMigrationSummary(ctx, orgID, om.summary)
+		if err != nil {
+			return err
+		}
+
+		du = newDu
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return du, nil
+}
 
 // MigrateOrg executes the migration for a single org.
 func (ms *MigrationService) MigrateOrg(ctx context.Context, orgID int64) (*apiModels.OrgMigrationSummary, error) {
@@ -145,7 +256,7 @@ func (ms *MigrationService) MigrateOrg(ctx context.Context, orgID int64) (*apiMo
 	defer ms.mtx.Unlock()
 	var summary *apiModels.OrgMigrationSummary
 	err := ms.store.InTransaction(ctx, func(ctx context.Context) error {
-		ms.log.Info("Starting legacy migration for org %d", orgID)
+		ms.log.Info("Starting legacy migration for org", "orgID", orgID)
 		om, err := ms.migrateOrg(ctx, orgID)
 		if err != nil {
 			return fmt.Errorf("failed to migrate org %d: %w", orgID, err)
@@ -261,7 +372,7 @@ func (ms *MigrationService) IsDisabled() bool {
 func (ms *MigrationService) RevertOrg(ctx context.Context, orgID int64) error {
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
-	ms.log.Info("Reverting legacy migration for org %d", orgID)
+	ms.log.Info("Reverting legacy migration for org", "orgID", orgID)
 	return ms.store.InTransaction(ctx, func(ctx context.Context) error {
 		return ms.migrationStore.RevertOrg(ctx, orgID)
 	})

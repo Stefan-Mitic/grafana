@@ -1,13 +1,16 @@
 import { css, cx } from '@emotion/css';
 import uFuzzy from '@leeoniya/ufuzzy';
+import { createSelector } from '@reduxjs/toolkit';
 import {debounce, uniq} from 'lodash';
 import pluralize from 'pluralize';
-import React, { useEffect, useMemo, useState } from 'react';
-import {useLocalStorage} from 'react-use';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {useLocation} from 'react-router-dom';
+import { useLocalStorage } from 'react-use';
 
 import { GrafanaTheme2, UrlQueryMap } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { Stack } from '@grafana/experimental';
+import {locationService} from '@grafana/runtime';
 import {
   Alert,
   Badge,
@@ -27,12 +30,13 @@ import {
   useStyles2
 } from '@grafana/ui';
 import { Page } from 'app/core/components/Page/Page';
+import {useQueryParams} from 'app/core/hooks/useQueryParams';
 
-import {useQueryParams} from '../../core/hooks/useQueryParams';
+import PageLoader from '../../core/components/PageLoader/PageLoader';
 import {MatcherOperator} from '../../plugins/datasource/alertmanager/types';
 import {getSearchPlaceholder} from '../search/tempI18nPhrases';
 
-import {AlertPair, ContactPair, DashboardUpgrade, upgradeApi} from "./unified/api/upgradeApi";
+import {AlertPair, ContactPair, DashboardUpgrade, OrgMigrationSummary, upgradeApi} from "./unified/api/upgradeApi";
 import {DynamicTable, DynamicTableColumnProps, DynamicTableItemProps} from "./unified/components/DynamicTable";
 import {DynamicTableWithGuidelines} from "./unified/components/DynamicTableWithGuidelines";
 import {ProvisioningBadge} from "./unified/components/Provisioning";
@@ -46,18 +50,57 @@ import {
 } from './unified/utils/misc';
 import {createUrl} from "./unified/utils/url";
 
-export const Upgrade = () => {
-  const styles = useStyles2(getStyles);
-  const { useCancelOrgUpgradeMutation, useGetOrgUpgradeSummaryQuery, useUpgradeOrgMutation } = upgradeApi;
+
+export const UpgradePage = () => {
+  const { useGetOrgUpgradeSummaryQuery } = upgradeApi;
   const {
     currentData: summary,
-    isFetching: isFetchLoading,
+    isFetching: isFetching,
     isError: isFetchError,
     error: fetchError,
   } = useGetOrgUpgradeSummaryQuery();
 
-  const [startUpgrade, { isLoading: isUpgradeLoading }] = useUpgradeOrgMutation();
-  const [startOver, { isLoading: isCancelLoading }] = useCancelOrgUpgradeMutation();
+  const alertCount = (summary?.migratedDashboards ?? []).reduce((acc, cur) => acc + (cur?.migratedAlerts?.length ?? 0), 0);
+  const contactCount = summary?.migratedChannels?.length ?? 0;
+
+  const errors = summary?.errors ?? [];
+  const hasData = alertCount > 0 || contactCount > 0 || errors.length > 0
+
+  return (
+      <Page navId="alerting-upgrade">
+          <Page.Contents>
+            {isFetchError && (
+              <Alert severity="error" title="Error loading Grafana Alerting upgrade information">
+                {fetchError instanceof Error ? fetchError.message : 'Unknown error.'}
+              </Alert>
+            )}
+            {!isFetchError && !isFetching && !hasData && (
+              <CTAElement/>
+            )}
+            {!isFetchError && hasData && (
+              <>
+                <ErrorSummary errors={errors}/>
+                <UpgradeTabs
+                  alertCount={alertCount}
+                  contactCount={contactCount}
+                />
+              </>
+            )}
+          </Page.Contents>
+      </Page>
+  );
+};
+
+interface UpgradeTabsProps {
+  alertCount: number;
+  contactCount: number;
+}
+
+export const UpgradeTabs = ({alertCount, contactCount}: UpgradeTabsProps) => {
+  const styles = useStyles2(getStyles);
+  const { useCancelOrgUpgradeMutation } = upgradeApi;
+
+  const [startOver, {isLoading}] = useCancelOrgUpgradeMutation();
 
   const [queryParams, setQueryParams] = useQueryParams();
   const { tab } = getActiveTabFromUrl(queryParams);
@@ -66,129 +109,79 @@ export const Upgrade = () => {
 
   const [showConfirmStartOver, setShowConfirmStartOver] = useState(false);
 
-  const upgradeAlerting = async () => {
-    await startUpgrade()
-  }
 
   const cancelUpgrade = async () => {
     await startOver()
     setShowConfirmStartOver(false);
   }
 
-  const isLoading = isFetchLoading || isUpgradeLoading || isCancelLoading;
-
-  const alertCount = (summary?.migratedDashboards ?? []).reduce((acc, cur) => acc + (cur?.migratedAlerts?.length ?? 0), 0);
-  const contactCount = summary?.migratedChannels?.length ?? 0;
-
-  const errors = summary?.errors ?? [];
-  const hasData = alertCount > 0 || contactCount > 0 || errors.length > 0
-
-  const channelColumns= useChannelColumns();
-  const alertColumns = useAlertColumns();
-
-  const alertTab = useMemo(() => {
-    return <UpgradeTabContent<DashboardUpgrade>
-      rows={summary?.migratedDashboards ?? []}
-      filterParam={"alertFilter"}
-      searchSpaceMap={(dashUpgrade) => `${dashUpgrade.folderName} ${dashUpgrade.dashboardName} ${dashUpgrade.newFolderName}`}
-      emptyMessage={"No alert upgrades found."}
-      searchPlaceholder={getSearchPlaceholder(false)}
-      columns={alertColumns}
-      isExpandable={true}
-      renderExpandedContent={({data: dashUpgrade}) => <AlertTable dashboardUid={dashUpgrade.dashboardUid ?? ''}
-                                                                  pairs={dashUpgrade?.migratedAlerts ?? []}
-                                                                  showGuidelines={true}/>}
-    />
-  }, [summary?.migratedDashboards, alertColumns]);
-  const channelTab = useMemo(() => {
-    return <UpgradeTabContent<ContactPair>
-      rows={summary?.migratedChannels ?? []}
-      filterParam={"contactFilter"}
-      searchSpaceMap={(pair) => `${pair.legacyChannel?.name} ${pair.contactPoint?.name} ${pair.legacyChannel?.type}`}
-      emptyMessage={"No channel upgrades found."}
-      searchPlaceholder={"Search for channel and contact point names"}
-      columns={channelColumns}
-    />
-  }, [summary?.migratedChannels, channelColumns]);
+  if (isLoading) {
+    return <PageLoader/>
+  }
 
   return (
-      <Page navId="alerting-upgrade">
-          <Page.Contents isLoading={isLoading}>
-            {isFetchError && (
-              <Alert severity="error" title="Error loading Grafana Alerting upgrade information">
-                {fetchError instanceof Error ? fetchError.message : 'Unknown error.'}
-              </Alert>
-            )}
-            {!isFetchError && !hasData && (
-              CTAElement({ handleUpgradeClick: upgradeAlerting })
-            )}
-            {!isFetchError && hasData && (
+          <>
+            <TabsBar>
+              <Tab
+                label={"Upgraded Alerts"}
+                active={activeTab === ActiveTab.Alerts}
+                counter={alertCount}
+                icon={"bell"}
+                onChangeTab={() => {
+                  setActiveTab(ActiveTab.Alerts);
+                  setQueryParams({ tab: ActiveTab.Alerts });
+                }}
+              />
+              <Tab
+                label={"Upgraded Contacts"}
+                active={activeTab === ActiveTab.Contacts}
+                counter={contactCount}
+                icon={"at"}
+                onChangeTab={() => {
+                  setActiveTab(ActiveTab.Contacts);
+                  setQueryParams({ tab: ActiveTab.Contacts });
+                }}
+              />
+              <HorizontalGroup height="auto" justify="flex-end">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setShowConfirmStartOver(true)}
+                  icon={"trash-alt"}
+                  className={""}
+                >
+                  {"Cancel Upgrade"}
+                </Button>
+                {showConfirmStartOver && (
+                  <ConfirmModal
+                    isOpen={true}
+                    title="Cancel Upgrade Process"
+                    body={
+                      <Stack direction="column" gap={0.5}>
+                        <Text color="primary">Are you sure you want to cancel your upgrade?</Text>
+                        <Text color="secondary" variant="bodySmall">All Grafana Alerting resources will be deleted. This includes: alert rules, contact points, notification policies, silences, and mute timings.</Text>
+                        <Text color="secondary" variant="bodySmall" weight="bold">No legacy alerts or notification channels will be affected.</Text>
+                      </Stack>
+                    }
+                    confirmText="Yes, delete Grafana Alerting resources"
+                    onConfirm={cancelUpgrade}
+                    onDismiss={() => setShowConfirmStartOver(false)}
+                  />
+                )}
+              </HorizontalGroup>
+            </TabsBar>
+            <TabContent className={styles.tabContent}>
               <>
-                <ErrorSummary errors={errors}/>
-                <TabsBar>
-                  <Tab
-                    label={"Upgraded Alerts"}
-                    active={activeTab === ActiveTab.Alerts}
-                    counter={alertCount}
-                    icon={"bell"}
-                    onChangeTab={() => {
-                      setActiveTab(ActiveTab.Alerts);
-                      setQueryParams({ tab: ActiveTab.Alerts });
-                    }}
-                  />
-                  <Tab
-                    label={"Upgraded Contacts"}
-                    active={activeTab === ActiveTab.Contacts}
-                    counter={contactCount}
-                    icon={"at"}
-                    onChangeTab={() => {
-                      setActiveTab(ActiveTab.Contacts);
-                      setQueryParams({ tab: ActiveTab.Contacts });
-                    }}
-                  />
-                  <HorizontalGroup height="auto" justify="flex-end">
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => setShowConfirmStartOver(true)}
-                      icon={"trash-alt"}
-                      className={""}
-                    >
-                      {"Cancel Upgrade"}
-                    </Button>
-                    {showConfirmStartOver && (
-                      <ConfirmModal
-                        isOpen={true}
-                        title="Cancel Upgrade Process"
-                        body={
-                          <Stack direction="column" gap={0.5}>
-                            <Text color="primary">Are you sure you want to cancel your upgrade?</Text>
-                            <Text color="secondary" variant="bodySmall">All Grafana Alerting resources will be deleted. This includes: alert rules, contact points, notification policies, silences, and mute timings.</Text>
-                            <Text color="secondary" variant="bodySmall" weight="bold">No legacy alerts or notification channels will be affected.</Text>
-                          </Stack>
-                        }
-                        confirmText="Yes, delete Grafana Alerting resources"
-                        onConfirm={cancelUpgrade}
-                        onDismiss={() => setShowConfirmStartOver(false)}
-                      />
-                    )}
-                  </HorizontalGroup>
-                </TabsBar>
-                <TabContent className={styles.tabContent}>
-                  <>
-                    {activeTab === ActiveTab.Alerts && (
-                      alertTab
-                    )}
-                    {activeTab === ActiveTab.Contacts && (
-                      channelTab
-                    )}
-                  </>
-
-                </TabContent>
+                {activeTab === ActiveTab.Alerts && (
+                  <AlertTabContentWrapper/>
+                )}
+                {activeTab === ActiveTab.Contacts && (
+                  <ChannelTabContentWrapper/>
+                )}
               </>
-            )}
-          </Page.Contents>
-      </Page>
+
+            </TabContent>
+          </>
   );
 };
 
@@ -217,12 +210,17 @@ function getActiveTabFromUrl(queryParams: UrlQueryMap): QueryParamValues {
   };
 }
 
-interface CTAElementProps {
-  handleUpgradeClick: () => void;
-}
+const CTAElement = () => {
+  const { useUpgradeOrgMutation } = upgradeApi;
+  const [startUpgrade, {isLoading}] = useUpgradeOrgMutation();
 
-const CTAElement = (props: CTAElementProps) => {
-  const { handleUpgradeClick } = props;
+  const upgradeAlerting = async () => {
+    await startUpgrade()
+  }
+
+  if (isLoading) {
+    return <PageLoader/>
+  }
 
   const footer = (
     <>
@@ -253,7 +251,7 @@ const CTAElement = (props: CTAElementProps) => {
           <Button
             size="lg"
             variant="destructive"
-            onClick={handleUpgradeClick}
+            onClick={upgradeAlerting}
             icon={"bell"}
             className={""}
             data-testid={selectors.components.CallToActionCard.buttonV2("Start Upgrade")}
@@ -275,9 +273,92 @@ const CTAElement = (props: CTAElementProps) => {
                            callToActionElement={cta}/>;
 }
 
+const AlertTabContentWrapper = () => {
+  const columns = useAlertColumns();
+  const filterParam = "alertFilter";
+  const [queryParam] = useSingleQueryParam(filterParam);
+
+  const selectRows = useMemo(() => {
+    const emptyArray: Array<DynamicTableItemProps<DashboardUpgrade>> = [];
+    return createSelector(
+      (res: OrgMigrationSummary | undefined) => res?.migratedDashboards ?? [],
+      (rows) => rows ?? emptyArray,
+    )}, [])
+
+  const { items } = upgradeApi.useGetOrgUpgradeSummaryQuery(undefined, {
+    selectFromResult: ({ data }) => ({
+      items: selectRows(data),
+    }),
+  })
+
+  const searchSpaceMap = useCallback((dashUpgrade: DashboardUpgrade) => `${dashUpgrade.folderName} ${dashUpgrade.dashboardName} ${dashUpgrade.newFolderName}`, []);
+  const renderExpandedContent = useCallback(({data: dashUpgrade}: {data: DashboardUpgrade}) => <AlertTable dashboardUid={dashUpgrade.dashboardUid ?? ''}
+                                                                                 dashboardId={dashUpgrade.dashboardId}
+                                                                                 showGuidelines={true}/>, []);
+
+  return <AlertTabContent
+    rows={items}
+    filterParam={filterParam}
+    queryParam={queryParam}
+    searchSpaceMap={searchSpaceMap}
+    emptyMessage={"No alert upgrades found."}
+    searchPlaceholder={getSearchPlaceholder(false)}
+    columns={columns}
+    isExpandable={true}
+    renderExpandedContent={renderExpandedContent}
+  />
+}
+AlertTabContentWrapper.displayName = "AlertTabContentWrapper";
+
+const ChannelTabContentWrapper = () => {
+  const columns = useChannelColumns();
+
+  const filterParam = "contactFilter";
+  const [queryParam] = useSingleQueryParam(filterParam);
+
+  const selectRows = useMemo(() => {
+    const emptyArray: Array<DynamicTableItemProps<ContactPair>> = [];
+    return createSelector(
+      (res: OrgMigrationSummary | undefined) => res?.migratedChannels ?? [],
+      (rows) => rows ?? emptyArray,
+    )}, [])
+
+  const { items } = upgradeApi.useGetOrgUpgradeSummaryQuery(undefined, {
+    selectFromResult: ({ data }) => ({
+      items: selectRows(data),
+    }),
+  })
+
+  const searchSpaceMap = useCallback((pair: ContactPair) => `${pair.legacyChannel?.name} ${pair.contactPoint?.name} ${pair.legacyChannel?.type}`, []);
+
+  return <ChannelTabContent
+    rows={items}
+    filterParam={filterParam}
+    queryParam={queryParam}
+    searchSpaceMap={searchSpaceMap}
+    emptyMessage={"No channel upgrades found."}
+    searchPlaceholder={"Search for channel and contact point names"}
+    columns={columns}
+  />
+}
+ChannelTabContentWrapper.displayName = "ChannelTabContentWrapper";
+
+function useSingleQueryParam(name: string): [string | undefined, (values: string) => void] {
+  const { search } = useLocation();
+  const param =  useMemo(() => {
+    return new URLSearchParams(search).get(name) || '';
+  }, [name, search]);
+  // const param = useMemo(() => queryParams[name] === undefined ? undefined : String(queryParams[name]), [queryParams, name]);
+  const update = useCallback((value: string) => {
+    return locationService.partial({ [name]: value || null })
+  }, [name]);
+  return [param, update];
+}
+
 interface UpgradeTabContentProps<T extends object> {
   rows?: T[];
   filterParam: string;
+  queryParam?: string;
   searchSpaceMap: (row: T) => string;
   columns: Array<DynamicTableColumnProps<T>>
   isExpandable?: boolean;
@@ -286,9 +367,10 @@ interface UpgradeTabContentProps<T extends object> {
   searchPlaceholder: string;
 }
 
-const UpgradeTabContent = <T extends object,>({
+const UpgradeTabContent =  <T extends object,>({
                                  rows = [],
                                  filterParam,
+                                 queryParam,
                                  searchSpaceMap,
                                  columns,
                                  isExpandable=false,
@@ -298,9 +380,7 @@ const UpgradeTabContent = <T extends object,>({
                       }: UpgradeTabContentProps<T>) => {
   const styles = useStyles2(getStyles);
 
-  const [queryParams, setQueryParams] = useQueryParams();
-  const queryParamFilter = queryParams[filterParam] === undefined ? undefined : String(queryParams[filterParam]);
-  const [filter, setFilter] = useState(queryParamFilter);
+  const [filter, setFilter] = useState(queryParam || '');
 
   const filterFn = useMemo(() => {
     return createfilterByMapping<T>(searchSpaceMap);
@@ -320,6 +400,8 @@ const UpgradeTabContent = <T extends object,>({
 
   const TableComponent = showGuidelines ? DynamicTableWithGuidelines : DynamicTable;
 
+  const pagination = useMemo(() => ({ itemsPerPage: 10 }), []);
+
   return (
     <>
       <div className={styles.searchWrapper}>
@@ -329,7 +411,7 @@ const UpgradeTabContent = <T extends object,>({
               placeholder={searchPlaceholder}
               searchFn={(phrase) => {
                 setFilter(phrase || '');
-                setQueryParams({ [filterParam]: phrase || null });
+                locationService.partial({ [filterParam]: phrase || null })
               }}
               searchPhrase={filter || ''}
             />
@@ -343,7 +425,7 @@ const UpgradeTabContent = <T extends object,>({
             isExpandable={isExpandable}
             items={items}
             renderExpandedContent={renderExpandedContent}
-            pagination={{ itemsPerPage: 10 }}
+            pagination={pagination}
             paginationStyles={styles.pagination}
           />
         </div>
@@ -353,107 +435,116 @@ const UpgradeTabContent = <T extends object,>({
       )}
     </>
   );
-}
+};
+
+const ChannelTabContent = React.memo(UpgradeTabContent<ContactPair>);
+const AlertTabContent = React.memo(UpgradeTabContent<DashboardUpgrade>);
 
 const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
   const styles = useStyles2(getStyles);
-  return [
-    {
-      id: 'legacyChannel',
-      label: 'Legacy Channel',
-      // eslint-disable-next-line react/display-name
-      renderCell: ({ data: contactPair }) => {
-        if (!contactPair?.legacyChannel) {
-          return null;
-        }
-        return (
-          <Stack direction={"row"} gap={1}>
-            <Link rel="noreferrer"
-                  target="_blank"
-                  className={styles.textLink}
-                  href={createUrl(`/alerting-legacy/notifications/receivers/${encodeURIComponent(contactPair.legacyChannel.id)}/edit`, {})}>
-              {contactPair.legacyChannel.name}
-            </Link>
-            { contactPair.legacyChannel?.type && (<Badge color="blue" text={contactPair.legacyChannel.type} />)}
-          </Stack>
-        )
-      },
-      size: 5,
-    },
-    {
-      id: 'arrow',
-      label: '',
-      renderCell: ({ data: contactPair }) => {
-        if (!contactPair?.contactPoint) {
-          return null;
-        }
-        return <Icon name="arrow-right" />;
-      },
-      size: '45px',
-    },
-    {
-      id: 'route',
-      label: 'Notification Policy',
-      renderCell: ({ data: contactPair }) => {
-        return (<>
-          {contactPair?.contactPoint && (
-            <Matchers matchers={[[`__contacts_${contactPair.contactPoint.uid}__`, MatcherOperator.equal, "true"]]} />
-          )}
-        </>)
-      },
-      size: 5,
-    },
-    {
-      id: 'arrow2',
-      label: '',
-      renderCell: ({ data: contactPair }) => {
-        if (!contactPair?.contactPoint) {
-          return null;
-        }
-        return <Icon name="arrow-right" />;
-      },
-      size: '45px',
-    },
-    {
-      id: 'contactPoint',
-      label: 'Contact Point',
-      // eslint-disable-next-line react/display-name
-      renderCell: ({ data: contactPair }) => {
-        return (
-          <Stack direction={"row"} gap={1}>
-            {contactPair?.contactPoint && (
-              <><Link rel="noreferrer"
-                      target="_blank"
-                      className={styles.textLink}
-                      href={createContactPointLink(contactPair.contactPoint.name, 'grafana')}>
-                {contactPair.contactPoint.name}
+  return useMemo(() => (
+    [
+      {
+        id: 'legacyChannel',
+        label: 'Legacy Channel',
+        // eslint-disable-next-line react/display-name
+        renderCell: ({ data: contactPair }) => {
+          if (!contactPair?.legacyChannel) {
+            return null;
+          }
+          return (
+            <Stack direction={"row"} gap={1}>
+              <Link rel="noreferrer"
+                    target="_blank"
+                    className={styles.textLink}
+                    href={createUrl(`/alerting-legacy/notifications/receivers/${encodeURIComponent(contactPair.legacyChannel.id)}/edit`, {})}>
+                {contactPair.legacyChannel.name}
               </Link>
-                <Badge color="blue" text={contactPair.contactPoint.type} /></>
-            )}
-            {contactPair.error && (
-              <Tooltip theme="error" content={contactPair.error}>
-                <Icon name="exclamation-triangle" className={styles.warningIcon} size={"lg"}/>
-              </Tooltip>
-            )}
-          </Stack>
-        )
+              { contactPair.legacyChannel?.type && (<Badge color="blue" text={contactPair.legacyChannel.type} />)}
+            </Stack>
+          )
+        },
+        size: 5,
       },
-      size: 5,
-    },
-    {
-      id: 'provisioned',
-      label: '',
-      renderCell: ({ data: contactPair }) => {
-        return contactPair.provisioned ? <ProvisioningBadge /> : null;
+      {
+        id: 'arrow',
+        label: '',
+        renderCell: ({ data: contactPair }) => {
+          if (!contactPair?.contactPoint) {
+            return null;
+          }
+          return <Icon name="arrow-right" />;
+        },
+        size: '45px',
       },
-      size: '100px',
-    },
-  ];
+      {
+        id: 'route',
+        label: 'Notification Policy',
+        renderCell: ({ data: contactPair }) => {
+          return (<>
+            {contactPair?.contactPoint && (
+              <Matchers matchers={[[`__contacts_${contactPair.contactPoint.uid}__`, MatcherOperator.equal, "true"]]} />
+            )}
+          </>)
+        },
+        size: 5,
+      },
+      {
+        id: 'arrow2',
+        label: '',
+        renderCell: ({ data: contactPair }) => {
+          if (!contactPair?.contactPoint) {
+            return null;
+          }
+          return <Icon name="arrow-right" />;
+        },
+        size: '45px',
+      },
+      {
+        id: 'contactPoint',
+        label: 'Contact Point',
+        // eslint-disable-next-line react/display-name
+        renderCell: ({ data: contactPair }) => {
+          return (
+            <Stack direction={"row"} gap={1}>
+              {contactPair?.contactPoint && (
+                <><Link rel="noreferrer"
+                        target="_blank"
+                        className={styles.textLink}
+                        href={createContactPointLink(contactPair.contactPoint.name, 'grafana')}>
+                  {contactPair.contactPoint.name}
+                </Link>
+                  <Badge color="blue" text={contactPair.contactPoint.type} /></>
+              )}
+              {contactPair.error && (
+                <Tooltip theme="error" content={contactPair.error}>
+                  <Icon name="exclamation-triangle" className={styles.warningIcon} size={"lg"}/>
+                </Tooltip>
+              )}
+            </Stack>
+          )
+        },
+        size: 5,
+      },
+      {
+        id: 'provisioned',
+        label: '',
+        renderCell: ({ data: contactPair }) => {
+          return contactPair.provisioned ? <ProvisioningBadge /> : null;
+        },
+        size: '100px',
+      },
+    ]
+    ), [styles.textLink, styles.warningIcon]);
 }
 
 const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => {
   const styles = useStyles2(getStyles);
-  return [
+
+  const { useUpgradeDashboardMutation } = upgradeApi;
+  const [migrateDashboard] = useUpgradeDashboardMutation();
+
+  return useMemo(() => ([
     {
       id: 'dashboard-level-error',
       label: '',
@@ -486,7 +577,7 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
       label: 'Dashboard',
       renderCell: ({ data: dashUpgrade }) => {
         if (!dashUpgrade.dashboardName) {
-          return <Stack alignItems={"center"} gap={0.5}><Icon name="apps" /><Badge color="red" text="Unknown Dashboard"/></Stack>
+          return <Stack alignItems={"center"} gap={0.5}><Icon name="apps" /><Badge color="red" text={`Unknown Dashboard ID:${dashUpgrade.dashboardId}`}/></Stack>
         }
         return <Stack alignItems={"center"} gap={0.5}><Icon name="apps" />{dashUpgrade.dashboardName}</Stack>
       },
@@ -512,7 +603,16 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
         const migratedFolderUid = dashUpgrade?.newFolderUid;
         const folderChanged = migratedFolderUid!! && migratedFolderUid !== dashUpgrade.folderUid;
         if (folderChanged && dashUpgrade?.newFolderName) {
-          return <Stack alignItems={"center"} gap={0.5}><Icon name={"folder"} />{' '}{dashUpgrade?.newFolderName}</Stack>;
+          const newFolderWarning = dashUpgrade.warnings.find((warning) => warning.includes('dashboard alerts moved'));
+          return <Stack alignItems={"center"} gap={0.5}>
+                  <Icon name={"folder"} />
+                  {dashUpgrade?.newFolderName}
+                  {newFolderWarning && (
+                    <Tooltip theme="info-alt" content={newFolderWarning} placement="top">
+                      <Icon name={'info-circle'}/>
+                    </Tooltip>
+                  )}
+                </Stack>;
         }
         return null;
       },
@@ -523,15 +623,20 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
       label: '',
       className: styles.tableBadges,
       renderCell: ({ data: dashUpgrade }) => {
+        const provisionedWarning = dashUpgrade.warnings.find((warning) => warning.includes('failed to get provisioned status'));
+        const badge = css({
+          width: '100%',
+          justifyContent: 'center',
+        });
         return (
           <>
             {dashUpgrade.provisioned && (
-              <Badge color="purple" text="Provisioned" />
+              <Badge color="purple" text={provisionedWarning ? "Unknown" : "Provisioned"} tooltip={provisionedWarning} icon={provisionedWarning ? "exclamation-triangle" : undefined} className={badge}/>
             )}
           </>
         )
       },
-      size: '90px',
+      size: '100px',
     },
     {
       id: 'badges',
@@ -551,7 +656,7 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
           </Stack>
         )
       },
-      size: '140px',
+      size: '142px',
     },
     {
       id: 'actions',
@@ -561,6 +666,14 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
         const folderChanged = migratedFolderUid!! && migratedFolderUid !== dashUpgrade.folderUid;
         return (
           <Stack gap={0.5} alignItems="center">
+            {dashUpgrade.dashboardId && (<ActionIcon
+              // className={styles.destructiveActionIcon}
+              aria-label="re-upgrade legacy alerts for this dashboard"
+              key="upgrade-dashboard"
+              icon="sync"
+              tooltip="re-upgrade legacy alerts for this dashboard"
+              onClick={() => migrateDashboard({dashboardId: dashUpgrade.dashboardId})}
+            />)}
             {dashUpgrade.folderUid && (<ActionIcon
               aria-label="go to folder"
               key="gotofolder"
@@ -591,9 +704,9 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
           </Stack>
         )
       },
-      size: '110px',
+      size: '150px',
     },
-  ];
+  ]), [styles.tableBadges, styles.warningIcon, migrateDashboard]);
 }
 
 const ufuzzy = new uFuzzy({
@@ -661,30 +774,43 @@ const Search = ({ searchFn, searchPhrase, placeholder }: SearchProps) => {
 };
 
 interface AlertTableProps {
-  pairs:  AlertPair[];
+  dashboardId: number;
   dashboardUid: string;
   showGuidelines?: boolean;
   emptyMessage?: string;
 }
 
 const AlertTable = ({
-                      pairs,
+                      dashboardId,
                       dashboardUid,
                         showGuidelines = false,
                         emptyMessage = 'No alert upgrades found.',
                       }: AlertTableProps) => {
   const styles = useStyles2(getStyles);
 
-  const wrapperClass = cx(styles.wrapper, styles.rulesTable, { [styles.wrapperMargin]: showGuidelines });
+  const selectRowsForDashUpgrade = useMemo(() => {
+    const emptyArray: Array<DynamicTableItemProps<AlertPair>> = [];
+    return createSelector(
+      (res: OrgMigrationSummary | undefined) => res?.migratedDashboards ?? [],
+      (res: OrgMigrationSummary | undefined, dashboardId: number) => dashboardId,
+      (migratedDashboards, dashboardId) => migratedDashboards?.find((du) => du.dashboardId === dashboardId)?.migratedAlerts.map((alertPair, Idx) => {
+        return {
+          id: `${alertPair?.legacyAlert?.id}-${Idx}`,
+          data: alertPair,
+        };
+      }) ?? emptyArray,
+    )}, [])
 
-  const items = useMemo((): Array<DynamicTableItemProps<AlertPair>> => {
-    return pairs.map((alertPair, Idx) => {
-      return {
-        id: `${alertPair?.legacyAlert?.id}-${Idx}`,
-        data: alertPair,
-      };
-    });
-  }, [pairs]);
+  const { items } = upgradeApi.useGetOrgUpgradeSummaryQuery(undefined, {
+    selectFromResult: ({ data }) => ({
+      items: selectRowsForDashUpgrade(data, dashboardId),
+    }),
+  })
+
+  const { useUpgradeAlertMutation } = upgradeApi;
+  const [migrateAlert] = useUpgradeAlertMutation();
+
+  const wrapperClass = cx(styles.wrapper, styles.rulesTable, { [styles.wrapperMargin]: showGuidelines });
 
   const columns: Array<DynamicTableColumnProps<AlertPair>> = [
     {
@@ -757,9 +883,34 @@ const AlertTable = ({
       },
       size: 3,
     },
+    {
+      id: 'actions',
+      label: 'Actions',
+      renderCell: ({ data: alertPair }) => {
+        if (!alertPair?.legacyAlert) {
+          return null;
+        }
+        if (alertPair.legacyAlert.dashboardId <= 0 || alertPair.legacyAlert.panelId <= 0) {
+          return null;
+        }
+        return (
+          <Stack gap={0.5} alignItems="center">
+            <ActionIcon
+              // className={styles.destructiveActionIcon}
+              aria-label="re-upgrade legacy alert"
+              key="upgrade-alert"
+              icon="sync"
+              tooltip="re-upgrade legacy alert"
+              onClick={() => migrateAlert({dashboardId: alertPair.legacyAlert.dashboardId, panelId: alertPair.legacyAlert.panelId})}
+            />
+          </Stack>
+        )
+      },
+      size: '70px',
+    },
   ];
 
-  if (!pairs.length) {
+  if (!items.length) {
     return <div className={cx(wrapperClass, styles.emptyMessage)}>{emptyMessage}</div>;
   }
 
@@ -787,7 +938,7 @@ interface ErrorSummaryButtonProps {
 const ErrorSummaryButton = ({ count, onClick }: ErrorSummaryButtonProps) => {
   return (
     <HorizontalGroup height="auto" justify="flex-start">
-      <Tooltip content="Show all errors" placement="bottom">
+      <Tooltip content="Show all errors" placement="top">
         <Button fill="text" variant="destructive" icon="exclamation-triangle" onClick={onClick}>
           {count > 1 ? <>{count} errors</> : <>1 error</>}
         </Button>
@@ -971,4 +1122,4 @@ export const getStyles = (theme: GrafanaTheme2) => ({
   `
 });
 
-export default Upgrade;
+export default UpgradePage;

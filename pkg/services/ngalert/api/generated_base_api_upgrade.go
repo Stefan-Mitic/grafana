@@ -15,11 +15,14 @@ import (
 	"github.com/grafana/grafana/pkg/middleware/requestmeta"
 	contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
 	"github.com/grafana/grafana/pkg/services/ngalert/metrics"
+	"github.com/grafana/grafana/pkg/web"
 )
 
 type UpgradeApi interface {
 	RouteDeleteOrgUpgrade(*contextmodel.ReqContext) response.Response
 	RouteGetOrgUpgrade(*contextmodel.ReqContext) response.Response
+	RoutePostUpgradeAlert(*contextmodel.ReqContext) response.Response
+	RoutePostUpgradeDashboard(*contextmodel.ReqContext) response.Response
 	RoutePostUpgradeOrg(*contextmodel.ReqContext) response.Response
 }
 
@@ -29,6 +32,17 @@ func (f *UpgradeApiHandler) RouteDeleteOrgUpgrade(ctx *contextmodel.ReqContext) 
 func (f *UpgradeApiHandler) RouteGetOrgUpgrade(ctx *contextmodel.ReqContext) response.Response {
 	return f.handleRouteGetOrgUpgrade(ctx)
 }
+func (f *UpgradeApiHandler) RoutePostUpgradeAlert(ctx *contextmodel.ReqContext) response.Response {
+	// Parse Path Parameters
+	dashboardIDParam := web.Params(ctx.Req)[":DashboardID"]
+	panelIDParam := web.Params(ctx.Req)[":PanelID"]
+	return f.handleRoutePostUpgradeAlert(ctx, dashboardIDParam, panelIDParam)
+}
+func (f *UpgradeApiHandler) RoutePostUpgradeDashboard(ctx *contextmodel.ReqContext) response.Response {
+	// Parse Path Parameters
+	dashboardIDParam := web.Params(ctx.Req)[":DashboardID"]
+	return f.handleRoutePostUpgradeDashboard(ctx, dashboardIDParam)
+}
 func (f *UpgradeApiHandler) RoutePostUpgradeOrg(ctx *contextmodel.ReqContext) response.Response {
 	return f.handleRoutePostUpgradeOrg(ctx)
 }
@@ -36,34 +50,56 @@ func (f *UpgradeApiHandler) RoutePostUpgradeOrg(ctx *contextmodel.ReqContext) re
 func (api *API) RegisterUpgradeApiEndpoints(srv UpgradeApi, m *metrics.API) {
 	api.RouteRegister.Group("", func(group routing.RouteRegister) {
 		group.Delete(
-			toMacaronPath("/api/v1/upgrade"),
+			toMacaronPath("/api/v1/upgrade/org"),
 			requestmeta.SetOwner(requestmeta.TeamAlerting),
-			api.authorize(http.MethodDelete, "/api/v1/upgrade"),
+			api.authorize(http.MethodDelete, "/api/v1/upgrade/org"),
 			metrics.Instrument(
 				http.MethodDelete,
-				"/api/v1/upgrade",
+				"/api/v1/upgrade/org",
 				api.Hooks.Wrap(srv.RouteDeleteOrgUpgrade),
 				m,
 			),
 		)
 		group.Get(
-			toMacaronPath("/api/v1/upgrade"),
+			toMacaronPath("/api/v1/upgrade/org"),
 			requestmeta.SetOwner(requestmeta.TeamAlerting),
-			api.authorize(http.MethodGet, "/api/v1/upgrade"),
+			api.authorize(http.MethodGet, "/api/v1/upgrade/org"),
 			metrics.Instrument(
 				http.MethodGet,
-				"/api/v1/upgrade",
+				"/api/v1/upgrade/org",
 				api.Hooks.Wrap(srv.RouteGetOrgUpgrade),
 				m,
 			),
 		)
 		group.Post(
-			toMacaronPath("/api/v1/upgrade"),
+			toMacaronPath("/api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID}"),
 			requestmeta.SetOwner(requestmeta.TeamAlerting),
-			api.authorize(http.MethodPost, "/api/v1/upgrade"),
+			api.authorize(http.MethodPost, "/api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID}"),
 			metrics.Instrument(
 				http.MethodPost,
-				"/api/v1/upgrade",
+				"/api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID}",
+				api.Hooks.Wrap(srv.RoutePostUpgradeAlert),
+				m,
+			),
+		)
+		group.Post(
+			toMacaronPath("/api/v1/upgrade/dashboard/{DashboardID}"),
+			requestmeta.SetOwner(requestmeta.TeamAlerting),
+			api.authorize(http.MethodPost, "/api/v1/upgrade/dashboard/{DashboardID}"),
+			metrics.Instrument(
+				http.MethodPost,
+				"/api/v1/upgrade/dashboard/{DashboardID}",
+				api.Hooks.Wrap(srv.RoutePostUpgradeDashboard),
+				m,
+			),
+		)
+		group.Post(
+			toMacaronPath("/api/v1/upgrade/org"),
+			requestmeta.SetOwner(requestmeta.TeamAlerting),
+			api.authorize(http.MethodPost, "/api/v1/upgrade/org"),
+			metrics.Instrument(
+				http.MethodPost,
+				"/api/v1/upgrade/org",
 				api.Hooks.Wrap(srv.RoutePostUpgradeOrg),
 				m,
 			),
