@@ -7,7 +7,6 @@ import { useLocalStorage } from 'react-use';
 import { GrafanaTheme2, UrlQueryMap } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { Stack } from '@grafana/experimental';
-import { locationService } from '@grafana/runtime';
 import {
   Alert,
   Badge,
@@ -786,24 +785,6 @@ const ErrorSummary = ({ errors }: ErrorSummaryProps) => {
     </>
   );
 };
-
-// export function upgradeAlerting() {
-//     getBackendSrv().get('/api/v1/upgrade').catch((e) => {
-//         console.error(e);
-//     });
-// }
-
-export function previewAlerting() {
-  locationService.push(`/alerting/list?__feature.alertingPreviewUA=true`);
-  // Reload page to fix navbar.
-  window.location.reload();
-}
-
-export function disablePreviewAlerting() {
-  locationService.push(`/alerting-legacy/list?__feature.alertingPreviewUA=true`);
-  // Reload page to fix navbar.
-  window.location.reload();
-}
 
 export const getStyles = (theme: GrafanaTheme2) => ({
   wrapperMargin: css`

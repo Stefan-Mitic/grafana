@@ -3,8 +3,6 @@ import React from 'react';
 import { config } from '@grafana/runtime';
 import { Alert, Button } from '@grafana/ui';
 
-import { disablePreviewAlerting } from '../Upgrade';
-
 export const LOCAL_STORAGE_KEY = 'grafana.legacyalerting.unifiedalertingpreview';
 
 const UAPreviewNotice = () => (
@@ -20,14 +18,6 @@ const UAPreviewNotice = () => (
           <a href="https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/">
             Read documentation
           </a>
-        </Button>{' '}
-        <Button
-          size="sm"
-          onClick={disablePreviewAlerting}
-          icon={"eye-slash"}
-          className={""}
-        >
-          {"Disable Preview"}
         </Button>
       </Alert>
     ) : null}
