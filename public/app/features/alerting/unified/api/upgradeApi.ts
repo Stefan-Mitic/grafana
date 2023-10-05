@@ -1,13 +1,13 @@
-import {FetchError, isFetchError} from '@grafana/runtime';
+import { FetchError, isFetchError } from '@grafana/runtime';
 
 import {
   createErrorNotification,
   createSuccessNotification,
-  createWarningNotification
+  createWarningNotification,
 } from '../../../../core/copy/appNotification';
-import {notifyApp} from '../../../../core/reducers/appNotification';
+import { notifyApp } from '../../../../core/reducers/appNotification';
 
-import {alertingApi} from './alertingApi';
+import { alertingApi } from './alertingApi';
 
 export interface OrgMigrationSummary {
   newDashboards: number;
@@ -100,7 +100,7 @@ export interface ContactPointUpgrade {
   uid: string;
   type: string;
   disableResolveMessage: boolean;
-  routeLabel: string,
+  routeLabel: string;
   modified: boolean;
 }
 
@@ -110,22 +110,28 @@ function isFetchBaseQueryError(error: unknown): error is { error: FetchError } {
 
 export const upgradeApi = alertingApi.injectEndpoints({
   endpoints: (build) => ({
-    upgradeChannel: build.mutation<OrgMigrationSummary, {channelId: number, skipExisting: boolean}>({
-      query: ({channelId, skipExisting}) => ({
+    upgradeChannel: build.mutation<OrgMigrationSummary, { channelId: number; skipExisting: boolean }>({
+      query: ({ channelId, skipExisting }) => ({
         url: `/api/v1/upgrade/channels/${channelId}${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
       invalidatesTags: ['OrgMigrationState'],
-      async onQueryStarted({channelId}, { dispatch, queryFulfilled }) {
+      async onQueryStarted({ channelId }, { dispatch, queryFulfilled }) {
         try {
-          const { data } = await queryFulfilled
-          if(data.hasErrors) {
+          const { data } = await queryFulfilled;
+          if (data.hasErrors) {
             dispatch(notifyApp(createWarningNotification(`Failed to upgrade notification channel '${channelId}'`)));
           } else {
             if (data.removed) {
-              dispatch(notifyApp(createSuccessNotification(`Notification channel '${channelId}' not found, removed from list of upgrades`)));
+              dispatch(
+                notifyApp(
+                  createSuccessNotification(
+                    `Notification channel '${channelId}' not found, removed from list of upgrades`
+                  )
+                )
+              );
             } else {
               dispatch(notifyApp(createSuccessNotification(`Upgraded notification channel '${channelId}'`)));
             }
@@ -139,21 +145,33 @@ export const upgradeApi = alertingApi.injectEndpoints({
         }
       },
     }),
-    upgradeAllChannels: build.mutation<OrgMigrationSummary, {skipExisting: boolean}>({
-      query: ({skipExisting}) => ({
+    upgradeAllChannels: build.mutation<OrgMigrationSummary, { skipExisting: boolean }>({
+      query: ({ skipExisting }) => ({
         url: `/api/v1/upgrade/channels${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
       invalidatesTags: ['OrgMigrationState'],
-      async onQueryStarted({skipExisting}, { dispatch, queryFulfilled }) {
+      async onQueryStarted({ skipExisting }, { dispatch, queryFulfilled }) {
         try {
-          const { data } = await queryFulfilled
-          if(data.hasErrors) {
-            dispatch(notifyApp(createWarningNotification(`Issues while upgrading ${data.newChannels} ${skipExisting?'new ':''}notification channels`)));
+          const { data } = await queryFulfilled;
+          if (data.hasErrors) {
+            dispatch(
+              notifyApp(
+                createWarningNotification(
+                  `Issues while upgrading ${data.newChannels} ${skipExisting ? 'new ' : ''}notification channels`
+                )
+              )
+            );
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newChannels} ${skipExisting?'new ':''}notification channels`)));
+            dispatch(
+              notifyApp(
+                createSuccessNotification(
+                  `Upgraded ${data.newChannels} ${skipExisting ? 'new ' : ''}notification channels`
+                )
+              )
+            );
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
@@ -164,24 +182,38 @@ export const upgradeApi = alertingApi.injectEndpoints({
         }
       },
     }),
-    upgradeAlert: build.mutation<OrgMigrationSummary, {dashboardId: number, panelId: number, skipExisting: boolean}>({
-      query: ({dashboardId, panelId, skipExisting}) => ({
+    upgradeAlert: build.mutation<OrgMigrationSummary, { dashboardId: number; panelId: number; skipExisting: boolean }>({
+      query: ({ dashboardId, panelId, skipExisting }) => ({
         url: `/api/v1/upgrade/dashboards/${dashboardId}/panels/${panelId}${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
       invalidatesTags: ['OrgMigrationState'],
-      async onQueryStarted({dashboardId, panelId}, { dispatch, queryFulfilled }) {
+      async onQueryStarted({ dashboardId, panelId }, { dispatch, queryFulfilled }) {
         try {
-          const { data } = await queryFulfilled
-          if ( data.hasErrors ) {
-            dispatch(notifyApp(createWarningNotification(`Failed to upgrade alert from dashboard '${dashboardId}', panel '${panelId}'`)));
+          const { data } = await queryFulfilled;
+          if (data.hasErrors) {
+            dispatch(
+              notifyApp(
+                createWarningNotification(`Failed to upgrade alert from dashboard '${dashboardId}', panel '${panelId}'`)
+              )
+            );
           } else {
             if (data.removed) {
-              dispatch(notifyApp(createSuccessNotification(`Alert from dashboard '${dashboardId}', panel '${panelId}' not found, removed from list of upgrades`)));
+              dispatch(
+                notifyApp(
+                  createSuccessNotification(
+                    `Alert from dashboard '${dashboardId}', panel '${panelId}' not found, removed from list of upgrades`
+                  )
+                )
+              );
             } else {
-              dispatch(notifyApp(createSuccessNotification(`Upgraded alert from dashboard '${dashboardId}', panel '${panelId}'`)));
+              dispatch(
+                notifyApp(
+                  createSuccessNotification(`Upgraded alert from dashboard '${dashboardId}', panel '${panelId}'`)
+                )
+              );
             }
           }
         } catch (e) {
@@ -193,24 +225,42 @@ export const upgradeApi = alertingApi.injectEndpoints({
         }
       },
     }),
-    upgradeDashboard: build.mutation<OrgMigrationSummary, {dashboardId: number, skipExisting: boolean}>({
-      query: ({dashboardId, skipExisting}) => ({
+    upgradeDashboard: build.mutation<OrgMigrationSummary, { dashboardId: number; skipExisting: boolean }>({
+      query: ({ dashboardId, skipExisting }) => ({
         url: `/api/v1/upgrade/dashboards/${dashboardId}${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
       invalidatesTags: ['OrgMigrationState'],
-      async onQueryStarted({dashboardId, skipExisting}, { dispatch, queryFulfilled }) {
+      async onQueryStarted({ dashboardId, skipExisting }, { dispatch, queryFulfilled }) {
         try {
-          const { data } = await queryFulfilled
-          if(data.hasErrors) {
-            dispatch(notifyApp(createWarningNotification(`Issues while upgrading ${data.newAlerts} ${skipExisting?'new ':''}alerts from dashboard '${dashboardId}'`)));
+          const { data } = await queryFulfilled;
+          if (data.hasErrors) {
+            dispatch(
+              notifyApp(
+                createWarningNotification(
+                  `Issues while upgrading ${data.newAlerts} ${
+                    skipExisting ? 'new ' : ''
+                  }alerts from dashboard '${dashboardId}'`
+                )
+              )
+            );
           } else {
             if (data.removed) {
-              dispatch(notifyApp(createSuccessNotification(`Dashboard '${dashboardId}' not found, removed from list of upgrades`)));
+              dispatch(
+                notifyApp(
+                  createSuccessNotification(`Dashboard '${dashboardId}' not found, removed from list of upgrades`)
+                )
+              );
             } else {
-              dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newAlerts} ${skipExisting?'new ':''}alerts from dashboard '${dashboardId}'`)));
+              dispatch(
+                notifyApp(
+                  createSuccessNotification(
+                    `Upgraded ${data.newAlerts} ${skipExisting ? 'new ' : ''}alerts from dashboard '${dashboardId}'`
+                  )
+                )
+              );
             }
           }
         } catch (e) {
@@ -222,21 +272,35 @@ export const upgradeApi = alertingApi.injectEndpoints({
         }
       },
     }),
-    upgradeAllDashboards: build.mutation<OrgMigrationSummary, {skipExisting: boolean}>({
-      query: ({skipExisting}) => ({
+    upgradeAllDashboards: build.mutation<OrgMigrationSummary, { skipExisting: boolean }>({
+      query: ({ skipExisting }) => ({
         url: `/api/v1/upgrade/dashboards${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
       invalidatesTags: ['OrgMigrationState'],
-      async onQueryStarted({skipExisting}, { dispatch, queryFulfilled }) {
+      async onQueryStarted({ skipExisting }, { dispatch, queryFulfilled }) {
         try {
-          const { data } = await queryFulfilled
-          if(data.hasErrors) {
-            dispatch(notifyApp(createWarningNotification(`Issues while upgrading ${data.newAlerts} ${skipExisting?'new ':''}alerts in ${data.newDashboards} dashboards`)));
+          const { data } = await queryFulfilled;
+          if (data.hasErrors) {
+            dispatch(
+              notifyApp(
+                createWarningNotification(
+                  `Issues while upgrading ${data.newAlerts} ${skipExisting ? 'new ' : ''}alerts in ${
+                    data.newDashboards
+                  } dashboards`
+                )
+              )
+            );
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newAlerts} ${skipExisting?'new ':''}alerts in ${data.newDashboards} dashboards`)));
+            dispatch(
+              notifyApp(
+                createSuccessNotification(
+                  `Upgraded ${data.newAlerts} ${skipExisting ? 'new ' : ''}alerts in ${data.newDashboards} dashboards`
+                )
+              )
+            );
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
@@ -247,21 +311,37 @@ export const upgradeApi = alertingApi.injectEndpoints({
         }
       },
     }),
-    upgradeOrg: build.mutation<OrgMigrationSummary, {skipExisting: boolean}>({
-      query: ({skipExisting}) => ({
+    upgradeOrg: build.mutation<OrgMigrationSummary, { skipExisting: boolean }>({
+      query: ({ skipExisting }) => ({
         url: `/api/v1/upgrade/org${skipExisting ? '?skipExisting=true' : ''}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
       }),
       invalidatesTags: ['OrgMigrationState'],
-      async onQueryStarted({skipExisting}, { dispatch, getCacheEntry, queryFulfilled }) {
+      async onQueryStarted({ skipExisting }, { dispatch, getCacheEntry, queryFulfilled }) {
         try {
-          const { data } = await queryFulfilled
-          if(data.hasErrors) {
-            dispatch(notifyApp(createWarningNotification(`Issues while upgrading ${data.newAlerts} ${skipExisting?'new ':''}alerts in ${data.newDashboards} dashboards and ${data.newChannels} ${skipExisting?'new ':''}notification channels`)));
+          const { data } = await queryFulfilled;
+          if (data.hasErrors) {
+            dispatch(
+              notifyApp(
+                createWarningNotification(
+                  `Issues while upgrading ${data.newAlerts} ${skipExisting ? 'new ' : ''}alerts in ${
+                    data.newDashboards
+                  } dashboards and ${data.newChannels} ${skipExisting ? 'new ' : ''}notification channels`
+                )
+              )
+            );
           } else {
-            dispatch(notifyApp(createSuccessNotification(`Upgraded ${data.newAlerts} ${skipExisting?'new ':''}alerts in ${data.newDashboards} dashboards and ${data.newChannels} ${skipExisting?'new ':''}notification channels`)));
+            dispatch(
+              notifyApp(
+                createSuccessNotification(
+                  `Upgraded ${data.newAlerts} ${skipExisting ? 'new ' : ''}alerts in ${
+                    data.newDashboards
+                  } dashboards and ${data.newChannels} ${skipExisting ? 'new ' : ''}notification channels`
+                )
+              )
+            );
           }
         } catch (e) {
           if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
@@ -281,7 +361,7 @@ export const upgradeApi = alertingApi.injectEndpoints({
       async onQueryStarted(undefined, { dispatch, queryFulfilled }) {
         // This helps prevent flickering of old tables after the cancel button is clicked.
         try {
-          await queryFulfilled
+          await queryFulfilled;
           dispatch(
             upgradeApi.util.updateQueryData('getOrgUpgradeSummary', undefined, (draft) => {
               const defaultState: OrgMigrationState = {
@@ -290,9 +370,9 @@ export const upgradeApi = alertingApi.injectEndpoints({
                 migratedChannels: [],
                 errors: [],
               };
-              Object.assign(draft, defaultState)
+              Object.assign(draft, defaultState);
             })
-          )
+          );
         } catch {}
       },
     }),
@@ -307,9 +387,17 @@ export const upgradeApi = alertingApi.injectEndpoints({
         summary.errors = summary.errors ?? [];
 
         const channelMap: Record<string, string> = {};
-        const defaultContacts = new Set(summary.migratedChannels.filter((channelPair) => channelPair.legacyChannel?.isDefault && channelPair.contactPoint?.name).map((channelPair) => channelPair.contactPoint?.name ?? ''));
+        const defaultContacts = new Set(
+          summary.migratedChannels
+            .filter((channelPair) => channelPair.legacyChannel?.isDefault && channelPair.contactPoint?.name)
+            .map((channelPair) => channelPair.contactPoint?.name ?? '')
+        );
         summary.migratedChannels.forEach((channelPair) => {
-          if (channelPair.contactPoint?.name && !channelPair?.legacyChannel?.isDefault && channelPair?.contactPoint?.routeLabel) {
+          if (
+            channelPair.contactPoint?.name &&
+            !channelPair?.legacyChannel?.isDefault &&
+            channelPair?.contactPoint?.routeLabel
+          ) {
             channelMap[channelPair.contactPoint.routeLabel] = channelPair.contactPoint.name;
           }
         });
@@ -320,25 +408,27 @@ export const upgradeApi = alertingApi.injectEndpoints({
           dashUpgrade.errors = dashUpgrade.errors ?? [];
           dashUpgrade.warnings = dashUpgrade.warnings ?? [];
           dashUpgrade.migratedAlerts.sort((a, b) => {
-            const byError = (b.error??'').localeCompare(a.error??'');
+            const byError = (b.error ?? '').localeCompare(a.error ?? '');
             if (byError !== 0) {
               return byError;
             }
-            return (a.legacyAlert?.name??'').localeCompare(b.legacyAlert?.name??'');
+            return (a.legacyAlert?.name ?? '').localeCompare(b.legacyAlert?.name ?? '');
           });
 
           // Calculate sends to fields.
           dashUpgrade.migratedAlerts.forEach((alertPair) => {
             if (!alertPair?.alertRule) {
-              return
+              return;
             }
             const defaults = new Set(defaultContacts);
-            alertPair.alertRule.sendsTo = [...Object.keys(alertPair.alertRule?.labels??{}).reduce((acc, cur) => {
-              if (channelMap[cur]) {
-                acc.add(channelMap[cur]);
-              }
-              return acc;
-            }, defaults)];
+            alertPair.alertRule.sendsTo = [
+              ...Object.keys(alertPair.alertRule?.labels ?? {}).reduce((acc, cur) => {
+                if (channelMap[cur]) {
+                  acc.add(channelMap[cur]);
+                }
+                return acc;
+              }, defaults),
+            ];
           });
         });
         summary.migratedDashboards.sort((a, b) => {
@@ -346,7 +436,8 @@ export const upgradeApi = alertingApi.injectEndpoints({
           if (byErrors !== 0) {
             return byErrors;
           }
-          const byNestedErrors = b.migratedAlerts.filter((a) => a.error).length - a.migratedAlerts.filter((a) => a.error).length;
+          const byNestedErrors =
+            b.migratedAlerts.filter((a) => a.error).length - a.migratedAlerts.filter((a) => a.error).length;
           if (byNestedErrors !== 0) {
             return byNestedErrors;
           }
@@ -367,11 +458,11 @@ export const upgradeApi = alertingApi.injectEndpoints({
           if (byErrors !== 0) {
             return byErrors;
           }
-          return (a.legacyChannel?.name??'').localeCompare(b.legacyChannel?.name??'');
-        })
+          return (a.legacyChannel?.name ?? '').localeCompare(b.legacyChannel?.name ?? '');
+        });
 
         return summary;
-      }
+      },
     }),
-  })
-})
+  }),
+});

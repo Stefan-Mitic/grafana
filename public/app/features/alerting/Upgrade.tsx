@@ -4,13 +4,13 @@ import { createSelector } from '@reduxjs/toolkit';
 import { debounce } from 'lodash';
 import pluralize from 'pluralize';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {useLocation} from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useLocalStorage } from 'react-use';
 
 import { GrafanaTheme2, UrlQueryMap } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { Stack } from '@grafana/experimental';
-import {locationService} from '@grafana/runtime';
+import { locationService } from '@grafana/runtime';
 import {
   Alert,
   Badge,
@@ -25,31 +25,26 @@ import {
   TabContent,
   TabsBar,
   TagList,
-  Text, TextLink,
+  Text,
+  TextLink,
   Tooltip,
-  useStyles2
+  useStyles2,
 } from '@grafana/ui';
 import { Page } from 'app/core/components/Page/Page';
-import {useQueryParams} from 'app/core/hooks/useQueryParams';
+import { useQueryParams } from 'app/core/hooks/useQueryParams';
 
 import PageLoader from '../../core/components/PageLoader/PageLoader';
-import {MatcherOperator} from '../../plugins/datasource/alertmanager/types';
-import {getSearchPlaceholder} from '../search/tempI18nPhrases';
+import { MatcherOperator } from '../../plugins/datasource/alertmanager/types';
+import { getSearchPlaceholder } from '../search/tempI18nPhrases';
 
-import {CollapsableAlert} from './components/CollapsableAlert';
-import {AlertPair, ContactPair, DashboardUpgrade, OrgMigrationState, upgradeApi} from "./unified/api/upgradeApi";
-import {DynamicTable, DynamicTableColumnProps, DynamicTableItemProps} from "./unified/components/DynamicTable";
-import {DynamicTableWithGuidelines} from "./unified/components/DynamicTableWithGuidelines";
-import {Matchers} from './unified/components/notification-policies/Matchers';
-import {ActionIcon} from './unified/components/rules/ActionIcon';
-import {getPaginationStyles} from './unified/styles/pagination';
-import {
-  createContactPointLink,
-  makeDashboardLink,
-  makeFolderLink
-} from './unified/utils/misc';
-import {createUrl} from "./unified/utils/url";
-
+import { CollapsableAlert } from './components/CollapsableAlert';
+import { AlertPair, ContactPair, DashboardUpgrade, OrgMigrationState, upgradeApi } from './unified/api/upgradeApi';
+import { DynamicTable, DynamicTableColumnProps, DynamicTableItemProps } from './unified/components/DynamicTable';
+import { DynamicTableWithGuidelines } from './unified/components/DynamicTableWithGuidelines';
+import { Matchers } from './unified/components/notification-policies/Matchers';
+import { ActionIcon } from './unified/components/rules/ActionIcon';
+import { createContactPointLink, makeDashboardLink, makeFolderLink } from './unified/utils/misc';
+import { createUrl } from './unified/utils/url';
 
 export const UpgradePage = () => {
   const { useGetOrgUpgradeSummaryQuery } = upgradeApi;
@@ -60,41 +55,39 @@ export const UpgradePage = () => {
     error: fetchError,
   } = useGetOrgUpgradeSummaryQuery();
 
-  const alertCount = (summary?.migratedDashboards ?? []).reduce((acc, cur) => acc + (cur?.migratedAlerts?.length ?? 0), 0);
+  const alertCount = (summary?.migratedDashboards ?? []).reduce(
+    (acc, cur) => acc + (cur?.migratedAlerts?.length ?? 0),
+    0
+  );
   const contactCount = summary?.migratedChannels?.length ?? 0;
 
   const errors = summary?.errors ?? [];
-  const hasData = alertCount > 0 || contactCount > 0 || errors.length > 0
+  const hasData = alertCount > 0 || contactCount > 0 || errors.length > 0;
 
   const cancelUpgrade = useMemo(() => {
     if (!isFetchError && hasData) {
-      return <CancelUpgradeButton/>
+      return <CancelUpgradeButton />;
     }
-    return null
+    return null;
   }, [isFetchError, hasData]);
 
   return (
-      <Page navId="alerting-upgrade" actions={cancelUpgrade}>
-          <Page.Contents>
-            {isFetchError && (
-              <Alert severity="error" title="Error loading Grafana Alerting upgrade information">
-                {fetchError instanceof Error ? fetchError.message : 'Unknown error.'}
-              </Alert>
-            )}
-            {!isFetchError && !isFetching && !hasData && (
-              <CTAElement/>
-            )}
-            {!isFetchError && hasData && (
-              <>
-                <ErrorSummary errors={errors}/>
-                <UpgradeTabs
-                  alertCount={alertCount}
-                  contactCount={contactCount}
-                />
-              </>
-            )}
-          </Page.Contents>
-      </Page>
+    <Page navId="alerting-upgrade" actions={cancelUpgrade}>
+      <Page.Contents>
+        {isFetchError && (
+          <Alert severity="error" title="Error loading Grafana Alerting upgrade information">
+            {fetchError instanceof Error ? fetchError.message : 'Unknown error.'}
+          </Alert>
+        )}
+        {!isFetchError && !isFetching && !hasData && <CTAElement />}
+        {!isFetchError && hasData && (
+          <>
+            <ErrorSummary errors={errors} />
+            <UpgradeTabs alertCount={alertCount} contactCount={contactCount} />
+          </>
+        )}
+      </Page.Contents>
+    </Page>
   );
 };
 
@@ -103,7 +96,7 @@ interface UpgradeTabsProps {
   contactCount: number;
 }
 
-export const UpgradeTabs = ({alertCount, contactCount}: UpgradeTabsProps) => {
+export const UpgradeTabs = ({ alertCount, contactCount }: UpgradeTabsProps) => {
   const styles = useStyles2(getStyles);
 
   const [queryParams, setQueryParams] = useQueryParams();
@@ -112,62 +105,57 @@ export const UpgradeTabs = ({alertCount, contactCount}: UpgradeTabsProps) => {
   const [activeTab, setActiveTab] = useState<ActiveTab>(tab);
 
   return (
-          <>
-            <CollapsableAlert
-              localStoreKey={"grafana.unifiedalerting.upgrade.guideNotice"}
-              alertTitle={"Grafana Alerting upgrade guide"}
-              collapseText={"Upgrade guide"}
-              collapseTooltip={"Show upgrade guide"}
-              severity={"info"}
-              justifyContent={"flex-start"}
-            >
-              <p>
-                Preview of how your existing alert rules and notification channels wll be upgraded to the new Grafana Alerting.
-                <br />
-                Once you are happy with the results, you can permanently upgrade by modifying the Grafana configuration.
-              </p>
-              <p>{"For more information, please refer to the "}
-                <TextLink
-                  external
-                  href={'https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/'}>
-                  Grafana Alerting Migration Guide
-                </TextLink>
-              </p>
-            </CollapsableAlert>
-            <TabsBar>
-              <Tab
-                label={"Upgraded alert rules"}
-                active={activeTab === ActiveTab.Alerts}
-                counter={alertCount}
-                icon={"bell"}
-                onChangeTab={() => {
-                  setActiveTab(ActiveTab.Alerts);
-                  setQueryParams({ tab: ActiveTab.Alerts });
-                }}
-              />
-              <Tab
-                label={"Upgraded notification channels"}
-                active={activeTab === ActiveTab.Contacts}
-                counter={contactCount}
-                icon={"at"}
-                onChangeTab={() => {
-                  setActiveTab(ActiveTab.Contacts);
-                  setQueryParams({ tab: ActiveTab.Contacts });
-                }}
-              />
-            </TabsBar>
-            <TabContent className={styles.tabContent}>
-              <>
-                {activeTab === ActiveTab.Alerts && (
-                  <AlertTabContentWrapper/>
-                )}
-                {activeTab === ActiveTab.Contacts && (
-                  <ChannelTabContentWrapper/>
-                )}
-              </>
-
-            </TabContent>
-          </>
+    <>
+      <CollapsableAlert
+        localStoreKey={'grafana.unifiedalerting.upgrade.guideNotice'}
+        alertTitle={'Grafana Alerting upgrade guide'}
+        collapseText={'Upgrade guide'}
+        collapseTooltip={'Show upgrade guide'}
+        severity={'info'}
+        justifyContent={'flex-start'}
+      >
+        <p>
+          Preview of how your existing alert rules and notification channels wll be upgraded to the new Grafana
+          Alerting.
+          <br />
+          Once you are happy with the results, you can permanently upgrade by modifying the Grafana configuration.
+        </p>
+        <p>
+          {'For more information, please refer to the '}
+          <TextLink external href={'https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/'}>
+            Grafana Alerting Migration Guide
+          </TextLink>
+        </p>
+      </CollapsableAlert>
+      <TabsBar>
+        <Tab
+          label={'Upgraded alert rules'}
+          active={activeTab === ActiveTab.Alerts}
+          counter={alertCount}
+          icon={'bell'}
+          onChangeTab={() => {
+            setActiveTab(ActiveTab.Alerts);
+            setQueryParams({ tab: ActiveTab.Alerts });
+          }}
+        />
+        <Tab
+          label={'Upgraded notification channels'}
+          active={activeTab === ActiveTab.Contacts}
+          counter={contactCount}
+          icon={'at'}
+          onChangeTab={() => {
+            setActiveTab(ActiveTab.Contacts);
+            setQueryParams({ tab: ActiveTab.Contacts });
+          }}
+        />
+      </TabsBar>
+      <TabContent className={styles.tabContent}>
+        <>
+          {activeTab === ActiveTab.Alerts && <AlertTabContentWrapper />}
+          {activeTab === ActiveTab.Contacts && <ChannelTabContentWrapper />}
+        </>
+      </TabContent>
+    </>
   );
 };
 
@@ -177,40 +165,45 @@ const CancelUpgradeButton = () => {
   const [showConfirmStartOver, setShowConfirmStartOver] = useState(false);
 
   const cancelUpgrade = async () => {
-    await startOver()
+    await startOver();
     setShowConfirmStartOver(false);
-  }
+  };
 
-  return <>
-    <Button
-      size="md"
-      variant="destructive"
-      onClick={() => setShowConfirmStartOver(true)}
-      icon={"trash-alt"}
-      className={""}
-    >
-      {"Cancel upgrade"}
-    </Button>
-    {showConfirmStartOver && (
-      <ConfirmModal
-        isOpen={true}
-        title="Cancel upgrade"
-        body={
-          <Stack direction="column" gap={0.5}>
-            <Text color="primary">All new Grafana Alerting resources will be deleted.</Text>
-            <Text color="secondary" variant="bodySmall">This includes: alert rules, contact points, notification policies, silences, mute timings, and any manual changes you have made.</Text>
-            <span className={styles.separator}/>
-            <Text color="primary">No legacy alerts or notification channels will be affected.</Text>
-          </Stack>
-        }
-        confirmText="Cancel upgrade"
-        onConfirm={cancelUpgrade}
-        dismissText={"Keep reviewing"}
-        onDismiss={() => setShowConfirmStartOver(false)}
-      />
-    )}
-  </>
-}
+  return (
+    <>
+      <Button
+        size="md"
+        variant="destructive"
+        onClick={() => setShowConfirmStartOver(true)}
+        icon={'trash-alt'}
+        className={''}
+      >
+        {'Cancel upgrade'}
+      </Button>
+      {showConfirmStartOver && (
+        <ConfirmModal
+          isOpen={true}
+          title="Cancel upgrade"
+          body={
+            <Stack direction="column" gap={0.5}>
+              <Text color="primary">All new Grafana Alerting resources will be deleted.</Text>
+              <Text color="secondary" variant="bodySmall">
+                This includes: alert rules, contact points, notification policies, silences, mute timings, and any
+                manual changes you have made.
+              </Text>
+              <span className={styles.separator} />
+              <Text color="primary">No legacy alerts or notification channels will be affected.</Text>
+            </Stack>
+          }
+          confirmText="Cancel upgrade"
+          onConfirm={cancelUpgrade}
+          dismissText={'Keep reviewing'}
+          onDismiss={() => setShowConfirmStartOver(false)}
+        />
+      )}
+    </>
+  );
+};
 
 enum ActiveTab {
   Alerts = 'alerts',
@@ -240,20 +233,23 @@ function getActiveTabFromUrl(queryParams: UrlQueryMap): QueryParamValues {
 const CTAElement = () => {
   const styles = useStyles2(getContentBoxStyles);
   const { useUpgradeOrgMutation } = upgradeApi;
-  const [startUpgrade, {isLoading}] = useUpgradeOrgMutation();
+  const [startUpgrade, { isLoading }] = useUpgradeOrgMutation();
 
   const upgradeAlerting = async () => {
-    await startUpgrade({skipExisting: false})
-  }
+    await startUpgrade({ skipExisting: false });
+  };
 
   if (isLoading) {
-    return <PageLoader/>
+    return <PageLoader />;
   }
 
   const footer = (
     <>
       <span key="proTipFooter">
-        <p>Note: {"Previewing the upgrade process will not affect your existing legacy alerts and can be stopped at any time."}</p>
+        <p>
+          Note:{' '}
+          {'Previewing the upgrade process will not affect your existing legacy alerts and can be stopped at any time.'}
+        </p>
       </span>
     </>
   );
@@ -266,95 +262,149 @@ const CTAElement = () => {
             size="lg"
             variant="primary"
             onClick={upgradeAlerting}
-            icon={"bell"}
-            className={""}
-            data-testid={selectors.components.CallToActionCard.buttonV2("Preview upgrade")}
+            icon={'bell'}
+            className={''}
+            data-testid={selectors.components.CallToActionCard.buttonV2('Preview upgrade')}
           >
-            {"Preview upgrade"}
+            {'Preview upgrade'}
           </Button>
         </Stack>
       </Stack>
     </div>
   );
 
-  return <div className={styles.grid}>
-    <ContentBox className={styles.processBlock}>
-      <h3 className={styles.header}>How it works</h3>
-      <Stack direction="column" alignItems="space-between">
-      <div className={styles.list}>
+  return (
+    <div className={styles.grid}>
+      <ContentBox className={styles.processBlock}>
+        <h3 className={styles.header}>How it works</h3>
+        <Stack direction="column" alignItems="space-between">
+          <div className={styles.list}>
             <h4>Automatic Upgrade</h4>
             <div className={styles.step}>
-              <p>The upgrade process seamlessly transfers your existing legacy alert rules and notification channels to the new Grafana Alerting system. This means your alerting configurations are preserved during the transition.</p>
+              <p>
+                The upgrade process seamlessly transfers your existing legacy alert rules and notification channels to
+                the new Grafana Alerting system. This means your alerting configurations are preserved during the
+                transition.
+              </p>
             </div>
             <h4>Preview and Modification</h4>
             <div className={styles.step}>
-              <p>Alert Rules, Contact Points, and Notification Policies generated during the upgrade are available for your review and potential adjustments. However, please note that they won't actively trigger alerts or send notifications at this stage.</p>
+              <p>
+                Alert Rules, Contact Points, and Notification Policies generated during the upgrade are available for
+                your review and potential adjustments. However, please note that they won't actively trigger alerts or
+                send notifications at this stage.
+              </p>
             </div>
             <h4>Limitations on Real-Time Updates</h4>
             <div className={styles.step}>
-              <p>Any changes made to your configurations after initiating the upgrade won't be immediately reflected in the summary table. You have the flexibility to re-upgrade specific resources like dashboards, alert rules, and notification channels at any time.</p>
+              <p>
+                Any changes made to your configurations after initiating the upgrade won't be immediately reflected in
+                the summary table. You have the flexibility to re-upgrade specific resources like dashboards, alert
+                rules, and notification channels at any time.
+              </p>
             </div>
             <h4>Cancellation and Restart</h4>
             <div className={styles.step}>
-              <p>If necessary, you can cancel and restart the upgrade process. However, it's important to be aware that canceling the upgrade will result in the removal of all Grafana Alerting resources, including any manual modifications you've made during the process.</p>
+              <p>
+                If necessary, you can cancel and restart the upgrade process. However, it's important to be aware that
+                canceling the upgrade will result in the removal of all Grafana Alerting resources, including any manual
+                modifications you've made during the process.
+              </p>
             </div>
             <h4>Completing the Upgrade</h4>
             <div className={styles.step}>
-              <p>To enable Grafana Alerting, you'll need to modify the Grafana configuration and restart. Until this step is completed, Grafana Alerting will remain inactive.</p>
+              <p>
+                To enable Grafana Alerting, you'll need to modify the Grafana configuration and restart. Until this step
+                is completed, Grafana Alerting will remain inactive.
+              </p>
             </div>
-        </div>
-      </Stack>
-    </ContentBox>
-    <ContentBox className={styles.getStartedBlock}>
-      <h3 className={styles.header}>Get started</h3>
-      <Stack direction="column" alignItems="space-between">
-        <div className={styles.list}>
+          </div>
+        </Stack>
+      </ContentBox>
+      <ContentBox className={styles.getStartedBlock}>
+        <h3 className={styles.header}>Get started</h3>
+        <Stack direction="column" alignItems="space-between">
+          <div className={styles.list}>
             <h4>Step 1: Preview the Upgrade</h4>
             <div className={styles.step}>
-              <p>Start the upgrade process by clicking on "Preview upgrade." This action will display a summary table showing how your existing alert rules and notification channels will be mapped to resources in the new Grafana Alerting system.</p>
+              <p>
+                Start the upgrade process by clicking on "Preview upgrade." This action will display a summary table
+                showing how your existing alert rules and notification channels will be mapped to resources in the new
+                Grafana Alerting system.
+              </p>
             </div>
             <h4>Step 2: Investigate and Resolve Errors</h4>
             <div className={styles.step}>
-              <p>Review the previewed upgrade carefully. Alert rules or notification channels that couldn't be automatically upgraded will be marked as errors. You have two options to address these errors:</p>
+              <p>
+                Review the previewed upgrade carefully. Alert rules or notification channels that couldn't be
+                automatically upgraded will be marked as errors. You have two options to address these errors:
+              </p>
               <ul className={styles.list}>
-                  <li>Fix the issues on the legacy side: If possible, resolve the problems within your legacy alerting setup, and then attempt the upgrade again.</li>
-                  <li>Manually create new resources: If fixing legacy issues isn't feasible, manually create new alert rules, notification policies, or contact points in the new Grafana Alerting system to replace the problematic ones.</li>
+                <li>
+                  Fix the issues on the legacy side: If possible, resolve the problems within your legacy alerting
+                  setup, and then attempt the upgrade again.
+                </li>
+                <li>
+                  Manually create new resources: If fixing legacy issues isn't feasible, manually create new alert
+                  rules, notification policies, or contact points in the new Grafana Alerting system to replace the
+                  problematic ones.
+                </li>
               </ul>
             </div>
             <h4>Step 3: Update Your As-Code Setup (Optional)</h4>
             <div className={styles.step}>
-              <p>In the new Grafana Alerting, Legacy Alerting methods of provisioning will no longer work. If you use provisioning to manage alert rules and notification channels, you can export the upgraded versions to generate Grafana Alerting-compatible provisioning files. This can all be done before completeing the upgrade process.</p>
+              <p>
+                In the new Grafana Alerting, Legacy Alerting methods of provisioning will no longer work. If you use
+                provisioning to manage alert rules and notification channels, you can export the upgraded versions to
+                generate Grafana Alerting-compatible provisioning files. This can all be done before completeing the
+                upgrade process.
+              </p>
             </div>
             <h4>Step 4: Perform the Upgrade to Grafana Alerting</h4>
             <div className={styles.step}>
-              <p>Once you are satisfied with the state of your Grafana Alerting setup, it's time to proceed with the upgrade:</p>
+              <p>
+                Once you are satisfied with the state of your Grafana Alerting setup, it's time to proceed with the
+                upgrade:
+              </p>
               <ul className={styles.list}>
-                  <li>Contact your Grafana server administrator to restart Grafana with the [unified_alerting] section enabled in your configuration.</li>
-                  <li>During this process, all organizations that have undergone the above upgrade process will continue to use their configured setup.</li>
-                  <li>Any organization that has not yet started the upgrade process will be automatically upgraded as part of this restart.</li>
-                  <li>Note: If the automatic upgrade fails for any reason, Grafana will not start, so it's safer to address any issues before initiating this step.</li>
+                <li>
+                  Contact your Grafana server administrator to restart Grafana with the [unified_alerting] section
+                  enabled in your configuration.
+                </li>
+                <li>
+                  During this process, all organizations that have undergone the above upgrade process will continue to
+                  use their configured setup.
+                </li>
+                <li>
+                  Any organization that has not yet started the upgrade process will be automatically upgraded as part
+                  of this restart.
+                </li>
+                <li>
+                  Note: If the automatic upgrade fails for any reason, Grafana will not start, so it's safer to address
+                  any issues before initiating this step.
+                </li>
               </ul>
             </div>
-        </div>
-        <Stack direction={'row'} alignItems={'center'} gap={0.5}>
-          <Text color={'secondary'}>For more information, please refer to the</Text>
-          <TextLink
-            external
-            href={'https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/'}>
-            Grafana Alerting Migration Guide
-          </TextLink>
+          </div>
+          <Stack direction={'row'} alignItems={'center'} gap={0.5}>
+            <Text color={'secondary'}>For more information, please refer to the</Text>
+            <TextLink external href={'https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/'}>
+              Grafana Alerting Migration Guide
+            </TextLink>
+          </Stack>
         </Stack>
-      </Stack>
-    </ContentBox>
-    <ContentBox className={styles.ctaBlock}>
-      <CallToActionCard className={styles.ctaStyle}
-                        message={"Start the upgrade to the new Grafana Alerting."}
-                        footer={footer}
-                        callToActionElement={cta}/>
-    </ContentBox>
-
-  </div>
-}
+      </ContentBox>
+      <ContentBox className={styles.ctaBlock}>
+        <CallToActionCard
+          className={styles.ctaStyle}
+          message={'Start the upgrade to the new Grafana Alerting.'}
+          footer={footer}
+          callToActionElement={cta}
+        />
+      </ContentBox>
+    </div>
+  );
+};
 
 function ContentBox({ children, className }: React.PropsWithChildren<{ className?: string }>) {
   const styles = useStyles2(getContentBoxStyles);
@@ -365,149 +415,171 @@ function ContentBox({ children, className }: React.PropsWithChildren<{ className
 const getContentBoxStyles = (theme: GrafanaTheme2) => {
   const color = theme.colors['warning'];
   return {
-          box: css`
-            padding: ${theme.spacing(2)};
-            background-color: ${theme.colors.background.secondary};
-            border-radius: ${theme.shape.radius.default};
-          `,
-          warningIcon: css`
-            color: ${color.text};
-          `,
-          grid: css`
-            display: grid;
-            grid-template-rows: min-content auto auto;
-            grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
-            gap: ${theme.spacing(2)};
-          `,
-          list: css`
-            margin: ${theme.spacing(0, 2)};
-            & > li {
-              margin-bottom: ${theme.spacing(1)};
-            }
-          `,
-          ctaStyle: css`
-             text-align: center;
-          `,
-          processBlock: css`
-            grid-column: 1 / span 2;
-            justify-content: space-between;
-          `,
-          getStartedBlock: css`
-            grid-column: 3 / span 3;
-            justify-content: space-between;
-          `,
-          ctaBlock: css`
-            grid-column: 1 / span 5;
-          `,
-          header: css`
-            margin-bottom: ${theme.spacing(2)};
-          `,
-          step: css`
-            padding-left: ${theme.spacing(2)};
-          `,
-      };
+    box: css`
+      padding: ${theme.spacing(2)};
+      background-color: ${theme.colors.background.secondary};
+      border-radius: ${theme.shape.radius.default};
+    `,
+    warningIcon: css`
+      color: ${color.text};
+    `,
+    grid: css`
+      display: grid;
+      grid-template-rows: min-content auto auto;
+      grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+      gap: ${theme.spacing(2)};
+    `,
+    list: css`
+      margin: ${theme.spacing(0, 2)};
+      & > li {
+        margin-bottom: ${theme.spacing(1)};
+      }
+    `,
+    ctaStyle: css`
+      text-align: center;
+    `,
+    processBlock: css`
+      grid-column: 1 / span 2;
+      justify-content: space-between;
+    `,
+    getStartedBlock: css`
+      grid-column: 3 / span 3;
+      justify-content: space-between;
+    `,
+    ctaBlock: css`
+      grid-column: 1 / span 5;
+    `,
+    header: css`
+      margin-bottom: ${theme.spacing(2)};
+    `,
+    step: css`
+      padding-left: ${theme.spacing(2)};
+    `,
+  };
 };
 
 const AlertTabContentWrapper = () => {
   const columns = useAlertColumns();
-  const filterParam = "alertFilter";
+  const filterParam = 'alertFilter';
   const [queryParam] = useSingleQueryParam(filterParam);
 
-  const [startAlertUpgrade, {isLoading}] = upgradeApi.useUpgradeAllDashboardsMutation();
+  const [startAlertUpgrade, { isLoading }] = upgradeApi.useUpgradeAllDashboardsMutation();
 
   const syncAlerting = async () => {
-      await startAlertUpgrade({skipExisting: true})
-  }
+    await startAlertUpgrade({ skipExisting: true });
+  };
 
   const selectRows = useMemo(() => {
     const emptyArray: Array<DynamicTableItemProps<DashboardUpgrade>> = [];
     return createSelector(
       (res: OrgMigrationState | undefined) => res?.migratedDashboards ?? [],
-      (rows) => rows ?? emptyArray,
-    )}, [])
+      (rows) => rows ?? emptyArray
+    );
+  }, []);
 
   const { items } = upgradeApi.useGetOrgUpgradeSummaryQuery(undefined, {
     selectFromResult: ({ data }) => ({
       items: selectRows(data),
     }),
-  })
+  });
 
-  const searchSpaceMap = useCallback((dashUpgrade: DashboardUpgrade) => `${dashUpgrade.folderName} ${dashUpgrade.dashboardName} ${dashUpgrade.newFolderName}`, []);
-  const renderExpandedContent = useCallback(({data: dashUpgrade}: {data: DashboardUpgrade}) => <AlertTable dashboardUid={dashUpgrade.dashboardUid ?? ''}
-                                                                                 dashboardId={dashUpgrade.dashboardId}
-                                                                                 showGuidelines={true}/>, []);
+  const searchSpaceMap = useCallback(
+    (dashUpgrade: DashboardUpgrade) =>
+      `${dashUpgrade.folderName} ${dashUpgrade.dashboardName} ${dashUpgrade.newFolderName}`,
+    []
+  );
+  const renderExpandedContent = useCallback(
+    ({ data: dashUpgrade }: { data: DashboardUpgrade }) => (
+      <AlertTable
+        dashboardUid={dashUpgrade.dashboardUid ?? ''}
+        dashboardId={dashUpgrade.dashboardId}
+        showGuidelines={true}
+      />
+    ),
+    []
+  );
 
-  return <AlertTabContent
-    rows={items}
-    queryParam={queryParam}
-    filterParam={filterParam}
-    searchSpaceMap={searchSpaceMap}
-    searchPlaceholder={getSearchPlaceholder(false)}
-    onSync={syncAlerting}
-    syncText={"Upgrade New Alerts"}
-    syncTooltip={"Upgrade all newly created legacy alerts since the previous run."}
-    isLoading={isLoading}
-    emptyMessage={"No alert upgrades found."}
-    columns={columns}
-    isExpandable={true}
-    renderExpandedContent={renderExpandedContent}
-  />
-}
-AlertTabContentWrapper.displayName = "AlertTabContentWrapper";
+  return (
+    <AlertTabContent
+      rows={items}
+      queryParam={queryParam}
+      filterParam={filterParam}
+      searchSpaceMap={searchSpaceMap}
+      searchPlaceholder={getSearchPlaceholder(false)}
+      onSync={syncAlerting}
+      syncText={'Upgrade New Alerts'}
+      syncTooltip={'Upgrade all newly created legacy alerts since the previous run.'}
+      isLoading={isLoading}
+      emptyMessage={'No alert upgrades found.'}
+      columns={columns}
+      isExpandable={true}
+      renderExpandedContent={renderExpandedContent}
+    />
+  );
+};
+AlertTabContentWrapper.displayName = 'AlertTabContentWrapper';
 
 const ChannelTabContentWrapper = () => {
   const columns = useChannelColumns();
 
-  const filterParam = "contactFilter";
+  const filterParam = 'contactFilter';
   const [queryParam] = useSingleQueryParam(filterParam);
 
-
-  const [startChannelUpgrade, {isLoading}] = upgradeApi.useUpgradeAllChannelsMutation();
+  const [startChannelUpgrade, { isLoading }] = upgradeApi.useUpgradeAllChannelsMutation();
 
   const syncAlerting = async () => {
-      await startChannelUpgrade({skipExisting: true})
-  }
+    await startChannelUpgrade({ skipExisting: true });
+  };
 
   const selectRows = useMemo(() => {
     const emptyArray: Array<DynamicTableItemProps<ContactPair>> = [];
     return createSelector(
       (res: OrgMigrationState | undefined) => res?.migratedChannels ?? [],
-      (rows) => rows ?? emptyArray,
-    )}, [])
+      (rows) => rows ?? emptyArray
+    );
+  }, []);
 
   const { items } = upgradeApi.useGetOrgUpgradeSummaryQuery(undefined, {
     selectFromResult: ({ data }) => ({
       items: selectRows(data),
     }),
-  })
+  });
 
-  const searchSpaceMap = useCallback((pair: ContactPair) => `${pair.legacyChannel?.name} ${pair.contactPoint?.name} ${pair.legacyChannel?.type}`, []);
+  const searchSpaceMap = useCallback(
+    (pair: ContactPair) => `${pair.legacyChannel?.name} ${pair.contactPoint?.name} ${pair.legacyChannel?.type}`,
+    []
+  );
 
-  return <ChannelTabContent
-    rows={items}
-    queryParam={queryParam}
-    filterParam={filterParam}
-    searchSpaceMap={searchSpaceMap}
-    searchPlaceholder={"Search for channel and contact point names"}
-    onSync={syncAlerting}
-    syncText={"Upgrade New Channels"}
-    syncTooltip={"Upgrade all newly created legacy notification channels since the previous run."}
-    isLoading={isLoading}
-    emptyMessage={"No channel upgrades found."}
-    columns={columns}
-  />
-}
-ChannelTabContentWrapper.displayName = "ChannelTabContentWrapper";
+  return (
+    <ChannelTabContent
+      rows={items}
+      queryParam={queryParam}
+      filterParam={filterParam}
+      searchSpaceMap={searchSpaceMap}
+      searchPlaceholder={'Search for channel and contact point names'}
+      onSync={syncAlerting}
+      syncText={'Upgrade New Channels'}
+      syncTooltip={'Upgrade all newly created legacy notification channels since the previous run.'}
+      isLoading={isLoading}
+      emptyMessage={'No channel upgrades found.'}
+      columns={columns}
+    />
+  );
+};
+ChannelTabContentWrapper.displayName = 'ChannelTabContentWrapper';
 
 function useSingleQueryParam(name: string): [string | undefined, (values: string) => void] {
   const { search } = useLocation();
-  const param =  useMemo(() => {
+  const param = useMemo(() => {
     return new URLSearchParams(search).get(name) || '';
   }, [name, search]);
   // const param = useMemo(() => queryParams[name] === undefined ? undefined : String(queryParams[name]), [queryParams, name]);
-  const update = useCallback((value: string) => {
-    return locationService.partial({ [name]: value || null })
-  }, [name]);
+  const update = useCallback(
+    (value: string) => {
+      return locationService.partial({ [name]: value || null });
+    },
+    [name]
+  );
   return [param, update];
 }
 
@@ -521,27 +593,27 @@ interface UpgradeTabContentProps<T extends object> {
   syncText: string;
   syncTooltip: string;
   isLoading: boolean;
-  columns: Array<DynamicTableColumnProps<T>>
+  columns: Array<DynamicTableColumnProps<T>>;
   isExpandable?: boolean;
   renderExpandedContent?: (item: DynamicTableItemProps<T>) => React.ReactNode;
   emptyMessage: string;
 }
 
-const UpgradeTabContent =  <T extends object,>({
-                                 rows = [],
-                                 filterParam,
-                                 queryParam,
-                                 searchSpaceMap,
-                                 columns,
-                                 isExpandable=false,
-                                 renderExpandedContent,
-                                 emptyMessage,
-                                 searchPlaceholder,
-                                 onSync,
-                                 syncText,
-                                 syncTooltip,
-                                 isLoading,
-                      }: UpgradeTabContentProps<T>) => {
+const UpgradeTabContent = <T extends object>({
+  rows = [],
+  filterParam,
+  queryParam,
+  searchSpaceMap,
+  columns,
+  isExpandable = false,
+  renderExpandedContent,
+  emptyMessage,
+  searchPlaceholder,
+  onSync,
+  syncText,
+  syncTooltip,
+  isLoading,
+}: UpgradeTabContentProps<T>) => {
   const styles = useStyles2(getStyles);
 
   const [filter, setFilter] = useState(queryParam || '');
@@ -575,25 +647,21 @@ const UpgradeTabContent =  <T extends object,>({
               placeholder={searchPlaceholder}
               searchFn={(phrase) => {
                 setFilter(phrase || '');
-                locationService.partial({ [filterParam]: phrase || null })
+                locationService.partial({ [filterParam]: phrase || null });
               }}
               searchPhrase={filter || ''}
             />
             <Tooltip theme="info-alt" content={syncTooltip} placement="top">
-              <Button
-                size="md"
-                variant="secondary"
-                onClick={onSync}
-                icon={"plus-circle"}
-              >
+              <Button size="md" variant="secondary" onClick={onSync} icon={'plus-circle'}>
                 {syncText}
               </Button>
             </Tooltip>
           </Stack>
         </Stack>
       </div>
-      {isLoading && <PageLoader/>}
-      {!isLoading && !!items.length && (<div className={wrapperClass}>
+      {isLoading && <PageLoader />}
+      {!isLoading && !!items.length && (
+        <div className={wrapperClass}>
           <TableComponent
             cols={columns}
             isExpandable={isExpandable}
@@ -604,9 +672,7 @@ const UpgradeTabContent =  <T extends object,>({
           />
         </div>
       )}
-      {!isLoading && !items.length && (
-        <div className={cx(wrapperClass, styles.emptyMessage)}>{emptyMessage}</div>
-      )}
+      {!isLoading && !items.length && <div className={cx(wrapperClass, styles.emptyMessage)}>{emptyMessage}</div>}
     </>
   );
 };
@@ -620,8 +686,8 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
   const { useUpgradeChannelMutation } = upgradeApi;
   const [migrateChannel] = useUpgradeChannelMutation();
 
-  return useMemo(() => (
-    [
+  return useMemo(
+    () => [
       {
         id: 'legacyChannel',
         label: 'Legacy Channel',
@@ -631,16 +697,21 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
             return null;
           }
           return (
-            <Stack direction={"row"} gap={1}>
-              <Link rel="noreferrer"
-                    target="_blank"
-                    className={styles.textLink}
-                    href={createUrl(`/alerting-legacy/notifications/receivers/${encodeURIComponent(contactPair.legacyChannel.id)}/edit`, {})}>
+            <Stack direction={'row'} gap={1}>
+              <Link
+                rel="noreferrer"
+                target="_blank"
+                className={styles.textLink}
+                href={createUrl(
+                  `/alerting-legacy/notifications/receivers/${encodeURIComponent(contactPair.legacyChannel.id)}/edit`,
+                  {}
+                )}
+              >
                 {contactPair.legacyChannel.name}
               </Link>
-              { contactPair.legacyChannel?.type && (<Badge color="blue" text={contactPair.legacyChannel.type} />)}
+              {contactPair.legacyChannel?.type && <Badge color="blue" text={contactPair.legacyChannel.type} />}
             </Stack>
-          )
+          );
         },
         size: 5,
       },
@@ -659,11 +730,13 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
         id: 'route',
         label: 'Notification Policy',
         renderCell: ({ data: contactPair }) => {
-          return (<>
-            {contactPair?.contactPoint?.routeLabel && (
-              <Matchers matchers={[[contactPair.contactPoint.routeLabel, MatcherOperator.equal, "true"]]} />
-            )}
-          </>)
+          return (
+            <>
+              {contactPair?.contactPoint?.routeLabel && (
+                <Matchers matchers={[[contactPair.contactPoint.routeLabel, MatcherOperator.equal, 'true']]} />
+              )}
+            </>
+          );
         },
         size: 5,
       },
@@ -684,23 +757,27 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
         // eslint-disable-next-line react/display-name
         renderCell: ({ data: contactPair }) => {
           return (
-            <Stack direction={"row"} gap={1}>
+            <Stack direction={'row'} gap={1}>
               {contactPair?.contactPoint && (
-                <><Link rel="noreferrer"
-                        target="_blank"
-                        className={styles.textLink}
-                        href={createContactPointLink(contactPair.contactPoint.name, 'grafana')}>
-                  {contactPair.contactPoint.name}
-                </Link>
-                  <Badge color="blue" text={contactPair.contactPoint.type} /></>
+                <>
+                  <Link
+                    rel="noreferrer"
+                    target="_blank"
+                    className={styles.textLink}
+                    href={createContactPointLink(contactPair.contactPoint.name, 'grafana')}
+                  >
+                    {contactPair.contactPoint.name}
+                  </Link>
+                  <Badge color="blue" text={contactPair.contactPoint.type} />
+                </>
               )}
               {contactPair.error && (
                 <Tooltip theme="error" content={contactPair.error}>
-                  <Icon name="exclamation-circle" className={styles.errorIcon} size={"lg"}/>
+                  <Icon name="exclamation-circle" className={styles.errorIcon} size={'lg'} />
                 </Tooltip>
               )}
             </Stack>
-          )
+          );
         },
         size: 5,
       },
@@ -708,7 +785,9 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
         id: 'provisioned',
         label: '',
         renderCell: ({ data: contactPair }) => {
-          return contactPair.provisioned ? <Badge color="purple" text={"Provisioned"} className={styles.badge}/> : null;
+          return contactPair.provisioned ? (
+            <Badge color="purple" text={'Provisioned'} className={styles.badge} />
+          ) : null;
         },
         size: '100px',
       },
@@ -729,16 +808,17 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
                 key="upgrade-channel"
                 icon="sync"
                 tooltip="re-upgrade legacy notification channel"
-                onClick={() => migrateChannel({channelId: pair.legacyChannel.id, skipExisting: false})}
+                onClick={() => migrateChannel({ channelId: pair.legacyChannel.id, skipExisting: false })}
               />
             </Stack>
-          )
+          );
         },
         size: '70px',
       },
-    ]
-    ), [styles.textLink, styles.errorIcon, styles.badge, migrateChannel]);
-}
+    ],
+    [styles.textLink, styles.errorIcon, styles.badge, migrateChannel]
+  );
+};
 
 const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => {
   const styles = useStyles2(getStyles);
@@ -746,160 +826,198 @@ const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => 
   const { useUpgradeDashboardMutation } = upgradeApi;
   const [migrateDashboard] = useUpgradeDashboardMutation();
 
-  return useMemo(() => ([
-    {
-      id: 'dashboard-level-error',
-      label: '',
-      renderCell: ({ data: dashUpgrade }) => {
-        const error = (dashUpgrade.errors ?? []).join('\n');
-        if (!error) {
-          return null;
-        }
-        return (
-          <Tooltip theme="error" content={error}>
-            <Icon name="exclamation-circle" className={styles.errorIcon} size={"lg"}/>
-          </Tooltip>
-        )
+  return useMemo(
+    () => [
+      {
+        id: 'dashboard-level-error',
+        label: '',
+        renderCell: ({ data: dashUpgrade }) => {
+          const error = (dashUpgrade.errors ?? []).join('\n');
+          if (!error) {
+            return null;
+          }
+          return (
+            <Tooltip theme="error" content={error}>
+              <Icon name="exclamation-circle" className={styles.errorIcon} size={'lg'} />
+            </Tooltip>
+          );
+        },
+        size: '45px',
       },
-      size: '45px',
-    },
-    {
-      id: 'folder',
-      label: 'Folder',
-      renderCell: ({ data: dashUpgrade }) => {
-        if (!dashUpgrade.folderName) {
-          return <Stack alignItems={"center"} gap={0.5}><Icon name="folder" /><Badge color="red" text="Unknown Folder"/></Stack>;
-        }
-        return <Stack alignItems={"center"} gap={0.5}>
-                  <Icon name="folder" />
-                  <Link rel="noreferrer"
-                        target="_blank"
-                        className={styles.textLink}
-                        href={makeFolderLink(dashUpgrade.folderUid)}>
-                    {dashUpgrade.folderName}
-                  </Link>
+      {
+        id: 'folder',
+        label: 'Folder',
+        renderCell: ({ data: dashUpgrade }) => {
+          if (!dashUpgrade.folderName) {
+            return (
+              <Stack alignItems={'center'} gap={0.5}>
+                <Icon name="folder" />
+                <Badge color="red" text="Unknown Folder" />
               </Stack>
+            );
+          }
+          return (
+            <Stack alignItems={'center'} gap={0.5}>
+              <Icon name="folder" />
+              <Link
+                rel="noreferrer"
+                target="_blank"
+                className={styles.textLink}
+                href={makeFolderLink(dashUpgrade.folderUid)}
+              >
+                {dashUpgrade.folderName}
+              </Link>
+            </Stack>
+          );
+        },
+        size: 2,
       },
-      size: 2,
-    },
-    {
-      id: 'dashboard',
-      label: 'Dashboard',
-      renderCell: ({ data: dashUpgrade }) => {
-        if (!dashUpgrade.dashboardName) {
-          return <Stack alignItems={"center"} gap={0.5}><Icon name="apps" /><Badge color="red" text={`Unknown Dashboard ID:${dashUpgrade.dashboardId}`}/></Stack>
-        }
-        return <Stack alignItems={"center"} gap={0.5}><Icon name="apps" />
-                <Link rel="noreferrer"
-                      target="_blank"
-                      className={styles.textLink}
-                      href={makeDashboardLink(dashUpgrade.dashboardUid)}>
-                  {dashUpgrade.dashboardName}
+      {
+        id: 'dashboard',
+        label: 'Dashboard',
+        renderCell: ({ data: dashUpgrade }) => {
+          if (!dashUpgrade.dashboardName) {
+            return (
+              <Stack alignItems={'center'} gap={0.5}>
+                <Icon name="apps" />
+                <Badge color="red" text={`Unknown Dashboard ID:${dashUpgrade.dashboardId}`} />
+              </Stack>
+            );
+          }
+          return (
+            <Stack alignItems={'center'} gap={0.5}>
+              <Icon name="apps" />
+              <Link
+                rel="noreferrer"
+                target="_blank"
+                className={styles.textLink}
+                href={makeDashboardLink(dashUpgrade.dashboardUid)}
+              >
+                {dashUpgrade.dashboardName}
+              </Link>
+            </Stack>
+          );
+        },
+        size: 2,
+      },
+      {
+        id: 'new-folder-arrow',
+        label: '',
+        renderCell: ({ data: dashUpgrade }) => {
+          const migratedFolderUid = dashUpgrade?.newFolderUid;
+          const folderChanged = migratedFolderUid!! && migratedFolderUid !== dashUpgrade.folderUid;
+          if (folderChanged && dashUpgrade?.newFolderName) {
+            return <Icon name="arrow-right" />;
+          }
+          return null;
+        },
+        size: '45px',
+      },
+      {
+        id: 'new-folder',
+        label: 'New folder',
+        renderCell: ({ data: dashUpgrade }) => {
+          const migratedFolderUid = dashUpgrade?.newFolderUid;
+          if (migratedFolderUid && migratedFolderUid !== dashUpgrade.folderUid && dashUpgrade?.newFolderName) {
+            const newFolderWarning = dashUpgrade.warnings.find((warning) => warning.includes('dashboard alerts moved'));
+            return (
+              <Stack alignItems={'center'} gap={0.5}>
+                <Icon name={'folder'} />
+                <Link
+                  rel="noreferrer"
+                  target="_blank"
+                  className={styles.textLink}
+                  href={makeFolderLink(migratedFolderUid)}
+                >
+                  {dashUpgrade.newFolderName}
                 </Link>
+                {newFolderWarning && (
+                  <Tooltip theme="info-alt" content={newFolderWarning} placement="top">
+                    <Icon name={'info-circle'} />
+                  </Tooltip>
+                )}
               </Stack>
-      },
-      size: 2,
-    },
-    {
-      id: 'new-folder-arrow',
-      label: '',
-      renderCell: ({ data: dashUpgrade }) => {
-        const migratedFolderUid = dashUpgrade?.newFolderUid;
-        const folderChanged = migratedFolderUid!! && migratedFolderUid !== dashUpgrade.folderUid;
-        if (folderChanged && dashUpgrade?.newFolderName) {
-          return <Icon name="arrow-right" />;
-        }
-        return null;
-      },
-      size: '45px',
-    },
-    {
-      id: 'new-folder',
-      label: 'New folder',
-      renderCell: ({ data: dashUpgrade }) => {
-        const migratedFolderUid = dashUpgrade?.newFolderUid;
-        if (migratedFolderUid && migratedFolderUid !== dashUpgrade.folderUid && dashUpgrade?.newFolderName) {
-          const newFolderWarning = dashUpgrade.warnings.find((warning) => warning.includes('dashboard alerts moved'));
-          return <Stack alignItems={"center"} gap={0.5}>
-                  <Icon name={"folder"} />
-                  <Link rel="noreferrer"
-                        target="_blank"
-                        className={styles.textLink}
-                        href={makeFolderLink(migratedFolderUid)}>
-                    {dashUpgrade.newFolderName}
-                  </Link>
-                  {newFolderWarning && (
-                    <Tooltip theme="info-alt" content={newFolderWarning} placement="top">
-                      <Icon name={'info-circle'}/>
-                    </Tooltip>
-                  )}
-                </Stack>;
-        }
-        return null;
-      },
-      size: 3,
-    },
-    {
-      id: 'provisioned',
-      label: '',
-      className: styles.tableBadges,
-      renderCell: ({ data: dashUpgrade }) => {
-        const provisionedWarning = dashUpgrade.warnings.find((warning) => warning.includes('failed to get provisioned status'));
-        return (
-          <>
-            {dashUpgrade.provisioned && (
-              <Badge color="purple" text={provisionedWarning ? "Unknown" : "Provisioned"} tooltip={provisionedWarning} icon={provisionedWarning ? "exclamation-triangle" : undefined} className={styles.badge}/>
-            )}
-          </>
-        )
-      },
-      size: '100px',
-    },
-    {
-      id: 'error-badge',
-      label: '',
-      className: styles.tableBadges,
-      renderCell: ({ data: dashUpgrade }) => {
-        const migratedAlerts = dashUpgrade?.migratedAlerts ?? [];
-        const nestedErrors = migratedAlerts.map((alertPair) => alertPair.error ?? '').filter((error) => !!error);
-        if (nestedErrors.length === 0) {
+            );
+          }
           return null;
-        }
-        return <Badge color="red" key="errors" text={`${nestedErrors.length} errors`} className={styles.badge}/>;
+        },
+        size: 3,
       },
-      size: '90px',
-    },
-    {
-      id: 'alert-count-badge',
-      label: '',
-      className: styles.tableBadges,
-      renderCell: ({ data: dashUpgrade }) => {
-        const migratedAlerts = dashUpgrade?.migratedAlerts ?? [];
-        return <Badge color="green" key="alerts" text={`${migratedAlerts.length} alert rules`} className={styles.badge}/>;
+      {
+        id: 'provisioned',
+        label: '',
+        className: styles.tableBadges,
+        renderCell: ({ data: dashUpgrade }) => {
+          const provisionedWarning = dashUpgrade.warnings.find((warning) =>
+            warning.includes('failed to get provisioned status')
+          );
+          return (
+            <>
+              {dashUpgrade.provisioned && (
+                <Badge
+                  color="purple"
+                  text={provisionedWarning ? 'Unknown' : 'Provisioned'}
+                  tooltip={provisionedWarning}
+                  icon={provisionedWarning ? 'exclamation-triangle' : undefined}
+                  className={styles.badge}
+                />
+              )}
+            </>
+          );
+        },
+        size: '100px',
       },
-      size: '110px',
-    },
-    {
-      id: 'actions',
-      label: 'Actions',
-      renderCell: ({ data: dashUpgrade }) => {
-        return (
-          <Stack gap={0.5} alignItems="center">
-            {dashUpgrade.dashboardId && (<ActionIcon
-              // className={styles.destructiveActionIcon}
-              aria-label="re-upgrade legacy alerts for this dashboard"
-              key="upgrade-dashboard"
-              icon="sync"
-              tooltip="re-upgrade legacy alerts for this dashboard"
-              onClick={() => migrateDashboard({dashboardId: dashUpgrade.dashboardId, skipExisting: false})}
-            />)}
-          </Stack>
-        )
+      {
+        id: 'error-badge',
+        label: '',
+        className: styles.tableBadges,
+        renderCell: ({ data: dashUpgrade }) => {
+          const migratedAlerts = dashUpgrade?.migratedAlerts ?? [];
+          const nestedErrors = migratedAlerts.map((alertPair) => alertPair.error ?? '').filter((error) => !!error);
+          if (nestedErrors.length === 0) {
+            return null;
+          }
+          return <Badge color="red" key="errors" text={`${nestedErrors.length} errors`} className={styles.badge} />;
+        },
+        size: '90px',
       },
-      size: '70px',
-    },
-  ]), [styles.tableBadges, styles.errorIcon, styles.textLink, styles.badge, migrateDashboard]);
-}
+      {
+        id: 'alert-count-badge',
+        label: '',
+        className: styles.tableBadges,
+        renderCell: ({ data: dashUpgrade }) => {
+          const migratedAlerts = dashUpgrade?.migratedAlerts ?? [];
+          return (
+            <Badge color="green" key="alerts" text={`${migratedAlerts.length} alert rules`} className={styles.badge} />
+          );
+        },
+        size: '110px',
+      },
+      {
+        id: 'actions',
+        label: 'Actions',
+        renderCell: ({ data: dashUpgrade }) => {
+          return (
+            <Stack gap={0.5} alignItems="center">
+              {dashUpgrade.dashboardId && (
+                <ActionIcon
+                  // className={styles.destructiveActionIcon}
+                  aria-label="re-upgrade legacy alerts for this dashboard"
+                  key="upgrade-dashboard"
+                  icon="sync"
+                  tooltip="re-upgrade legacy alerts for this dashboard"
+                  onClick={() => migrateDashboard({ dashboardId: dashUpgrade.dashboardId, skipExisting: false })}
+                />
+              )}
+            </Stack>
+          );
+        },
+        size: '70px',
+      },
+    ],
+    [styles.tableBadges, styles.errorIcon, styles.textLink, styles.badge, migrateDashboard]
+  );
+};
 
 const ufuzzy = new uFuzzy({
   intraMode: 1,
@@ -910,7 +1028,7 @@ const ufuzzy = new uFuzzy({
 });
 
 const createfilterByMapping = <T,>(searchSpaceMap: (row: T) => string) => {
-  return (filterables:  T[], filter: string | undefined) => {
+  return (filterables: T[], filter: string | undefined) => {
     if (!filter) {
       return filterables;
     }
@@ -924,7 +1042,7 @@ const createfilterByMapping = <T,>(searchSpaceMap: (row: T) => string) => {
     }
 
     return filterables;
-  }
+  };
 };
 
 interface SearchProps {
@@ -973,11 +1091,11 @@ interface AlertTableProps {
 }
 
 const AlertTable = ({
-                      dashboardId,
-                      dashboardUid,
-                        showGuidelines = false,
-                        emptyMessage = 'No alert upgrades found.',
-                      }: AlertTableProps) => {
+  dashboardId,
+  dashboardUid,
+  showGuidelines = false,
+  emptyMessage = 'No alert upgrades found.',
+}: AlertTableProps) => {
   const styles = useStyles2(getStyles);
 
   const selectRowsForDashUpgrade = useMemo(() => {
@@ -985,19 +1103,23 @@ const AlertTable = ({
     return createSelector(
       (res: OrgMigrationState | undefined) => res?.migratedDashboards ?? [],
       (res: OrgMigrationState | undefined, dashboardId: number) => dashboardId,
-      (migratedDashboards, dashboardId) => migratedDashboards?.find((du) => du.dashboardId === dashboardId)?.migratedAlerts.map((alertPair, Idx) => {
-        return {
-          id: `${alertPair?.legacyAlert?.id}-${Idx}`,
-          data: alertPair,
-        };
-      }) ?? emptyArray,
-    )}, [])
+      (migratedDashboards, dashboardId) =>
+        migratedDashboards
+          ?.find((du) => du.dashboardId === dashboardId)
+          ?.migratedAlerts.map((alertPair, Idx) => {
+            return {
+              id: `${alertPair?.legacyAlert?.id}-${Idx}`,
+              data: alertPair,
+            };
+          }) ?? emptyArray
+    );
+  }, []);
 
   const { items } = upgradeApi.useGetOrgUpgradeSummaryQuery(undefined, {
     selectFromResult: ({ data }) => ({
       items: selectRowsForDashUpgrade(data, dashboardId),
     }),
-  })
+  });
 
   const { useUpgradeAlertMutation } = upgradeApi;
   const [migrateAlert] = useUpgradeAlertMutation();
@@ -1012,19 +1134,25 @@ const AlertTable = ({
         if (!alertPair?.legacyAlert) {
           return null;
         }
-        return (<>
-          { dashboardUid ? (<Link rel="noreferrer"
+        return (
+          <>
+            {dashboardUid ? (
+              <Link
+                rel="noreferrer"
                 target="_blank"
                 className={styles.textLink}
-                href={createUrl(`/d/${encodeURIComponent(dashboardUid)}`,
-                  {
-                    editPanel: String(alertPair.legacyAlert.panelId),
-                    tab: "alert",
-                  })}>
-            {alertPair.legacyAlert.name}
-          </Link>) : (<Badge color="red" text={alertPair.legacyAlert.name}/>)}
+                href={createUrl(`/d/${encodeURIComponent(dashboardUid)}`, {
+                  editPanel: String(alertPair.legacyAlert.panelId),
+                  tab: 'alert',
+                })}
+              >
+                {alertPair.legacyAlert.name}
+              </Link>
+            ) : (
+              <Badge color="red" text={alertPair.legacyAlert.name} />
+            )}
           </>
-        )
+        );
       },
       size: 5,
     },
@@ -1044,22 +1172,24 @@ const AlertTable = ({
       label: 'New alert rule',
       renderCell: ({ data: alertPair }) => {
         return (
-        <Stack direction={"row"} gap={1}>
-          {alertPair?.alertRule && (
-            <Link rel="noreferrer"
-                    target="_blank"
-                    className={styles.textLink}
-                    href={createUrl(`/alerting/grafana/${alertPair.alertRule?.uid??''}/view`, {})}>
-              {alertPair.alertRule?.title??''}
-            </Link>
-          )}
-          {alertPair.error && (
-            <Tooltip theme="error" content={alertPair.error}>
-              <Icon name="exclamation-circle" className={styles.errorIcon} size={"lg"}/>
-            </Tooltip>
-          )}
-        </Stack>
-        )
+          <Stack direction={'row'} gap={1}>
+            {alertPair?.alertRule && (
+              <Link
+                rel="noreferrer"
+                target="_blank"
+                className={styles.textLink}
+                href={createUrl(`/alerting/grafana/${alertPair.alertRule?.uid ?? ''}/view`, {})}
+              >
+                {alertPair.alertRule?.title ?? ''}
+              </Link>
+            )}
+            {alertPair.error && (
+              <Tooltip theme="error" content={alertPair.error}>
+                <Icon name="exclamation-circle" className={styles.errorIcon} size={'lg'} />
+              </Tooltip>
+            )}
+          </Stack>
+        );
       },
       size: 5,
     },
@@ -1068,9 +1198,16 @@ const AlertTable = ({
       label: 'Sends To',
       renderCell: ({ data: alertPair }) => {
         // TODO: Maybe even show the routing preview.
-        return (<>
-          {!alertPair.error && (<TagList tags={alertPair?.alertRule?.sendsTo ?? []} displayMax={3} className={css({justifyContent: 'flex-start', width:'100%'})}/>)}
-        </>
+        return (
+          <>
+            {!alertPair.error && (
+              <TagList
+                tags={alertPair?.alertRule?.sendsTo ?? []}
+                displayMax={3}
+                className={css({ justifyContent: 'flex-start', width: '100%' })}
+              />
+            )}
+          </>
         );
       },
       size: 3,
@@ -1093,10 +1230,16 @@ const AlertTable = ({
               key="upgrade-alert"
               icon="sync"
               tooltip="re-upgrade legacy alert"
-              onClick={() => migrateAlert({dashboardId: alertPair.legacyAlert.dashboardId, panelId: alertPair.legacyAlert.panelId, skipExisting: false})}
+              onClick={() =>
+                migrateAlert({
+                  dashboardId: alertPair.legacyAlert.dashboardId,
+                  panelId: alertPair.legacyAlert.panelId,
+                  skipExisting: false,
+                })
+              }
             />
           </Stack>
-        )
+        );
       },
       size: '70px',
     },
@@ -1150,9 +1293,7 @@ const ErrorSummary = ({ errors }: ErrorSummaryProps) => {
 
   return (
     <>
-      {!!errors.length && closed && (
-        <ErrorSummaryButton count={errors.length} onClick={() => setClosed(false)} />
-      )}
+      {!!errors.length && closed && <ErrorSummaryButton count={errors.length} onClick={() => setClosed(false)} />}
       {!!errors.length && !closed && (
         <Alert
           data-testid="upgrade-errors"
@@ -1206,89 +1347,16 @@ export const getStyles = (theme: GrafanaTheme2) => ({
     border-right: 1px solid ${theme.colors.border.medium};
     border-bottom: 1px solid ${theme.colors.border.medium};
   `,
-  button: css`
-    padding: 0 ${theme.spacing(2)};
-  `,
   rulesTable: css`
     margin-top: ${theme.spacing(3)};
   `,
   errorIcon: css`
-      fill: ${theme.colors.error.text};
+    fill: ${theme.colors.error.text};
   `,
 
-  rowWrapper: css``,
-  header: css`
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      padding: ${theme.spacing(1)} ${theme.spacing(1)} ${theme.spacing(1)} 0;
-      flex-wrap: nowrap;
-      border-bottom: 1px solid ${theme.colors.border.weak};
-
-      &:hover {
-        background-color: ${theme.components.table.rowHoverBackground};
-      }
-  `,
-  headerStats: css`
-    flex-shrink: 0;
-
-    span {
-      vertical-align: middle;
-    }
-
-    ${theme.breakpoints.down('sm')} {
-      order: 2;
-      width: 100%;
-      padding-left: ${theme.spacing(1)};
-    }
-  `,
-  groupName: css`
-      margin-left: ${theme.spacing(1)};
-      margin-bottom: 0;
-      cursor: pointer;
-
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-  `,
-  spacer: css`
-      flex: 1;
-  `,
-  collapseToggle: css`
-      background: none;
-      border: none;
-      margin-top: -${theme.spacing(1)};
-      margin-bottom: -${theme.spacing(1)};
-
-      svg {
-        margin-bottom: 0;
-      }
-  `,
-  actionsSeparator: css`
-      margin: 0 ${theme.spacing(2)};
-  `,
-  actionIcons: css`
-      width: 95px;
-      align-items: center;
-
-      flex-shrink: 0;
-  `,
-
-
-  sectionHeader: css`
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: ${theme.spacing(1)};
-    margin-top: ${theme.spacing(1)};
-  `,
   searchWrapper: css`
     margin-bottom: ${theme.spacing(2)};
   `,
-  spinner: css`
-    text-align: center;
-    padding: ${theme.spacing(2)};
-  `,
-  sectionPagination: getPaginationStyles(theme),
   textLink: css`
     color: ${theme.colors.text.link};
     cursor: pointer;
@@ -1298,11 +1366,6 @@ export const getStyles = (theme: GrafanaTheme2) => ({
     }
   `,
 
-  statsContainer: css`
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-  `,
   tabContent: css`
     margin-top: ${theme.spacing(2)};
   `,
