@@ -49,7 +49,7 @@ func newContactPair(channel *legacymodels.AlertNotification, contactPoint *apiMo
 			Frequency:             model.Duration(channel.Frequency),
 			IsDefault:             channel.IsDefault,
 		},
-		Provisioned: false, //TODO: implement
+		Provisioned: false, // Provisioned status for alert notifications is not stored in the database.
 	}
 	if contactPoint != nil {
 		pair.ContactPointUpgrade = &migmodels.ContactPointUpgrade{

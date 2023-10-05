@@ -60,7 +60,6 @@ type Store interface {
 	CreateFolder(ctx context.Context, cmd *folder.CreateFolderCommand) (*folder.Folder, error)
 
 	IsProvisioned(ctx context.Context, orgID int64, dashboardUID string) (bool, error)
-	UpsertProvenance(ctx context.Context, orgID int64, p models.Provenance, rules []models.AlertRule) error
 
 	IsMigrated(ctx context.Context, orgID int64) (bool, error)
 	SetMigrated(ctx context.Context, orgID int64, migrated bool) error
@@ -551,21 +550,7 @@ func (ms *migrationStore) IsProvisioned(ctx context.Context, orgID int64, dashbo
 	return info != nil, nil
 }
 
-func (ms *migrationStore) UpsertProvenance(ctx context.Context, orgID int64, p models.Provenance, rules []models.AlertRule) error {
-	var result []models.Provisionable
-	for _, rule := range rules {
-		r := rule
-		result = append(result, &r)
-	}
-	return ms.alertingStore.UpsertProvenance(ctx, orgID, p, result...)
-}
-
 // DeleteAlertRules deletes alert rules in a given org by their UIDs.
 func (ms *migrationStore) DeleteAlertRules(ctx context.Context, orgID int64, alertRuleUIDs ...string) error {
-	err := ms.alertingStore.DeleteAlertRulesByUID(ctx, orgID, alertRuleUIDs...)
-	if err != nil {
-		return err
-	}
-
-	return ms.alertingStore.DeleteProvenanceByKeys(ctx, orgID, (&models.AlertRule{}).ResourceType(), alertRuleUIDs...)
+	return ms.alertingStore.DeleteAlertRulesByUID(ctx, orgID, alertRuleUIDs...)
 }

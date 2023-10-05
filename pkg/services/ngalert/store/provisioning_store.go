@@ -92,49 +92,12 @@ func (st DBstore) SetProvenance(ctx context.Context, o models.Provisionable, org
 	})
 }
 
-// UpsertProvenance changes the provenance status for provisionable objects.
-func (st DBstore) UpsertProvenance(ctx context.Context, org int64, p models.Provenance, o ...models.Provisionable) error {
-	return st.SQLStore.WithTransactionalDbSession(ctx, func(sess *db.Session) error {
-		upsertSQL, err := st.SQLStore.GetDialect().UpsertMultipleSQL(
-			"provenance_type",
-			[]string{"record_key", "record_type", "org_id"},
-			[]string{"record_key", "record_type", "org_id", "provenance"},
-			len(o),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to generate upsert SQL: %w", err)
-		}
-
-		params := make([]any, 0, len(o)*4)
-		for _, obj := range o {
-			params = append(params, obj.ResourceID(), obj.ResourceType(), org, p)
-		}
-
-		if _, err := sess.SQL(upsertSQL, params...).Query(); err != nil {
-			return fmt.Errorf("failed to store provisioning status: %w", err)
-		}
-
-		return nil
-	})
-}
-
 // DeleteProvenance deletes the provenance record from the table
 func (st DBstore) DeleteProvenance(ctx context.Context, o models.Provisionable, org int64) error {
 	return st.SQLStore.WithTransactionalDbSession(ctx, func(sess *db.Session) error {
 		_, err := sess.Delete(provenanceRecord{
 			RecordKey:  o.ResourceID(),
 			RecordType: o.ResourceType(),
-			OrgID:      org,
-		})
-		return err
-	})
-}
-
-// DeleteProvenanceByKeys deletes the provenance of multiple records from the table
-func (st DBstore) DeleteProvenanceByKeys(ctx context.Context, org int64, recordType string, recordKeys ...string) error {
-	return st.SQLStore.WithTransactionalDbSession(ctx, func(sess *db.Session) error {
-		_, err := sess.In("record_key", recordKeys).Delete(provenanceRecord{
-			RecordType: recordType,
 			OrgID:      org,
 		})
 		return err

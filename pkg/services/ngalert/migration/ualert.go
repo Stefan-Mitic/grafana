@@ -82,13 +82,6 @@ func (om *OrgMigration) migrateAndSaveAlerts(ctx context.Context, alerts []*lega
 				}
 			}
 		}
-
-		if info.Provisioned {
-			err := om.migrationStore.UpsertProvenance(ctx, om.orgID, models.ProvenanceUpgrade, rules)
-			if err != nil {
-				return nil, err
-			}
-		}
 	}
 
 	return pairs, nil

@@ -9,6 +9,5 @@ import (
 func canUpdateProvenanceInRuleGroup(storedProvenance, provenance models.Provenance) bool {
 	return storedProvenance == provenance ||
 		storedProvenance == models.ProvenanceNone ||
-		storedProvenance == models.ProvenanceUpgrade ||
 		(storedProvenance == models.ProvenanceAPI && provenance == models.ProvenanceNone)
 }
