@@ -89,10 +89,7 @@ func TestCreateRoute(t *testing.T) {
 
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			res, err := createRoute(&channelReceiver{
-				channel:  tt.channel,
-				receiver: tt.recv,
-			})
+			res, err := createRoute(tt.channel, tt.recv.Name)
 			require.NoError(t, err)
 
 			// Order of nested routes is not guaranteed.
@@ -154,7 +151,7 @@ func TestCreateReceivers(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.expRecv, recv.receiver)
+			require.Equal(t, tt.expRecv, recv)
 		})
 	}
 }

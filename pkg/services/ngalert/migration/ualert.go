@@ -85,7 +85,7 @@ func attachAlertRule(pair *apiModels.AlertPair, rule *models.AlertRule) {
 	}
 }
 
-func newContactPair(channel *legacymodels.AlertNotification, contactPoint *apiModels.PostableApiReceiver, provisioned bool, err error) *apiModels.ContactPair {
+func newContactPair(channel *legacymodels.AlertNotification, contactPoint *apiModels.PostableApiReceiver, route *apiModels.Route, err error) *apiModels.ContactPair {
 	pair := &apiModels.ContactPair{
 		LegacyChannel: &apiModels.LegacyChannel{
 			Modified:              false,
@@ -98,7 +98,7 @@ func newContactPair(channel *legacymodels.AlertNotification, contactPoint *apiMo
 			Frequency:             model.Duration(channel.Frequency),
 			IsDefault:             channel.IsDefault,
 		},
-		Provisioned: provisioned, //TODO: implement
+		Provisioned: false, //TODO: implement
 	}
 	if contactPoint != nil {
 		pair.ContactPointUpgrade = &apiModels.ContactPointUpgrade{
@@ -108,7 +108,11 @@ func newContactPair(channel *legacymodels.AlertNotification, contactPoint *apiMo
 			Type:                  contactPoint.GrafanaManagedReceivers[0].Type,
 			DisableResolveMessage: contactPoint.GrafanaManagedReceivers[0].DisableResolveMessage,
 		}
+		if route != nil {
+			pair.ContactPointUpgrade.RouteLabel = route.ObjectMatchers[0].Name
+		}
 	}
+
 	if err != nil {
 		pair.Error = err.Error()
 	}

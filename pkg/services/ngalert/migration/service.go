@@ -59,6 +59,222 @@ func ProvideService(
 	}, nil
 }
 
+// MigrateChannel migrates a single legacy notification channel to a unified alerting contact point.
+func (ms *MigrationService) MigrateChannel(ctx context.Context, orgID int64, channelID int64) (*apiModels.ContactPair, error) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+	var pair *apiModels.ContactPair
+	err := ms.store.InTransaction(ctx, func(ctx context.Context) error {
+		om := ms.newOrgMigration(orgID)
+		summary, err := om.migrationStore.GetOrgMigrationSummary(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+		}
+		om.summary = summary
+
+		amConfig, err := om.migrationStore.GetAlertmanagerConfig(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("failed to get alertmanager config: %w", err)
+		}
+
+		channel, err := om.migrationStore.GetNotificationChannel(ctx, orgID, channelID)
+		if err != nil {
+			return fmt.Errorf("failed to get notification channel: %w", err)
+		}
+
+		// Remove ContactPair from summary.
+		var keptUpgrades []*apiModels.ContactPair
+		for _, up := range om.summary.MigratedChannels {
+			if up.LegacyChannel != nil && up.LegacyChannel.ID != channelID {
+				keptUpgrades = append(keptUpgrades, up)
+			}
+		}
+		om.summary.MigratedChannels = keptUpgrades
+
+		receiver, route, err := om.migrateChannel(channel)
+		if err != nil {
+			om.log.Warn(err.Error(), "type", channel.Type, "name", channel.Name, "uid", channel.UID)
+			// Fail early for the single channel endpoint.
+			return err
+		}
+
+		var nestedLegacyChannelRoute *apiModels.Route
+		if amConfig == nil {
+			// No existing amConfig created from a previous migration.
+			amConfig, nestedLegacyChannelRoute = createBaseConfig()
+		} else if amConfig.AlertmanagerConfig.Route == nil {
+			// No existing base route created from a previous migration.
+			amConfig.AlertmanagerConfig.Route, nestedLegacyChannelRoute = createDefaultRoute()
+		} else {
+			nestedLegacyChannelRoute = extractNestedLegacyRoute(amConfig)
+			if nestedLegacyChannelRoute == nil {
+				// No existing nested route created from a previous migration, create a new one.
+				nestedLegacyChannelRoute = createNestedLegacyRoute()
+				// Add it as the first of the top-level routes.
+				amConfig.AlertmanagerConfig.Route.Routes = append([]*apiModels.Route{nestedLegacyChannelRoute}, amConfig.AlertmanagerConfig.Route.Routes...)
+			}
+		}
+
+		// Remove existing receiver with the same uid as the channel and all nested routes that reference it.
+		for i, recv := range amConfig.AlertmanagerConfig.Receivers {
+			for _, integration := range recv.GrafanaManagedReceivers {
+				if integration.UID == channel.UID {
+					amConfig.AlertmanagerConfig.Receivers = append(amConfig.AlertmanagerConfig.Receivers[:i], amConfig.AlertmanagerConfig.Receivers[i+1:]...)
+
+					// Remove all routes that reference this receiver in the nested route.
+					var keptRoutes []*apiModels.Route
+					for j, rte := range nestedLegacyChannelRoute.Routes {
+						if rte.Receiver != recv.Name {
+							keptRoutes = append(keptRoutes, nestedLegacyChannelRoute.Routes[j])
+						}
+					}
+					nestedLegacyChannelRoute.Routes = keptRoutes
+				}
+			}
+		}
+
+		nestedLegacyChannelRoute.Routes = append(nestedLegacyChannelRoute.Routes, route)
+		amConfig.AlertmanagerConfig.Receivers = append(amConfig.AlertmanagerConfig.Receivers, receiver)
+		pair = newContactPair(channel, receiver, route, nil)
+		om.summary.MigratedChannels = append(om.summary.MigratedChannels, pair)
+
+		if err := om.validateAlertmanagerConfig(amConfig); err != nil {
+			return fmt.Errorf("failed to validate AlertmanagerConfig: %w", err)
+		}
+
+		ms.log.Info("Writing alertmanager config", "orgID", orgID, "receivers", len(amConfig.AlertmanagerConfig.Receivers), "routes", len(amConfig.AlertmanagerConfig.Route.Routes))
+		if err := ms.migrationStore.SaveAlertmanagerConfiguration(ctx, orgID, amConfig); err != nil {
+			return fmt.Errorf("failed to write AlertmanagerConfig: %w", err)
+		}
+
+		err = ms.migrationStore.SetOrgMigrationSummary(ctx, orgID, om.summary)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return pair, nil
+}
+
+// MigrateAllChannels migrates all legacy notification channel to unified alerting contact points.
+func (ms *MigrationService) MigrateAllChannels(ctx context.Context, orgID int64) ([]*apiModels.ContactPair, error) {
+	ms.mtx.Lock()
+	defer ms.mtx.Unlock()
+	var pairs []*apiModels.ContactPair
+	err := ms.store.InTransaction(ctx, func(ctx context.Context) error {
+		om := ms.newOrgMigration(orgID)
+		summary, err := om.migrationStore.GetOrgMigrationSummary(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("failed to get org migration summary for org %d: %w", orgID, err)
+		}
+		om.summary = summary
+
+		amConfig, err := om.migrationStore.GetAlertmanagerConfig(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("failed to get alertmanager config: %w", err)
+		}
+
+		channels, err := om.migrationStore.GetNotificationChannels(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("failed to get notification channel: %w", err)
+		}
+
+		// Remove ContactPairs from summary.
+		om.summary.MigratedChannels = nil
+
+		// Cleanup existing migrated routes.
+		var nestedLegacyChannelRoute *apiModels.Route
+		if amConfig == nil {
+			// No existing amConfig created from a previous migration.
+			amConfig, nestedLegacyChannelRoute = createBaseConfig()
+		} else if amConfig.AlertmanagerConfig.Route == nil {
+			// No existing base route created from a previous migration.
+			amConfig.AlertmanagerConfig.Route, nestedLegacyChannelRoute = createDefaultRoute()
+		} else {
+			// Remove existing nested routes created from a previous migration and add new nested route as the first of the top-level routes.
+			nestedLegacyChannelRoute = createNestedLegacyRoute()
+			keptRoutes := []*apiModels.Route{nestedLegacyChannelRoute}
+			for _, r := range amConfig.AlertmanagerConfig.Route.Routes {
+				if len(r.ObjectMatchers) != 1 || r.ObjectMatchers[0].Name != UseLegacyChannelsLabel {
+					keptRoutes = append(keptRoutes, r)
+				}
+			}
+			amConfig.AlertmanagerConfig.Route.Routes = keptRoutes
+		}
+
+		// Remove all existing receivers with the same uid as a channel.
+		uids := map[string]struct{}{}
+		for _, channel := range channels {
+			uids[channel.UID] = struct{}{}
+		}
+		var keptReceivers []*apiModels.PostableApiReceiver
+		for _, recv := range amConfig.AlertmanagerConfig.Receivers {
+			matched := false
+			for _, integration := range recv.GrafanaManagedReceivers {
+				if _, ok := uids[integration.UID]; ok {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				keptReceivers = append(keptReceivers, recv)
+			}
+		}
+		amConfig.AlertmanagerConfig.Receivers = keptReceivers
+
+		for _, channel := range channels {
+			receiver, route, err := om.migrateChannel(channel)
+			if err != nil {
+				om.log.Warn(err.Error(), "type", channel.Type, "name", channel.Name, "uid", channel.UID)
+				pair := newContactPair(channel, receiver, route, err)
+				pairs = append(pairs, pair)
+				om.summary.MigratedChannels = append(om.summary.MigratedChannels, pair)
+			}
+
+			nestedLegacyChannelRoute.Routes = append(nestedLegacyChannelRoute.Routes, route)
+			amConfig.AlertmanagerConfig.Receivers = append(amConfig.AlertmanagerConfig.Receivers, receiver)
+			pair := newContactPair(channel, receiver, route, nil)
+			pairs = append(pairs, pair)
+			om.summary.MigratedChannels = append(om.summary.MigratedChannels, pair)
+		}
+
+		if err := om.validateAlertmanagerConfig(amConfig); err != nil {
+			return fmt.Errorf("failed to validate AlertmanagerConfig: %w", err)
+		}
+
+		ms.log.Info("Writing alertmanager config", "orgID", orgID, "receivers", len(amConfig.AlertmanagerConfig.Receivers), "routes", len(amConfig.AlertmanagerConfig.Route.Routes))
+		if err := ms.migrationStore.SaveAlertmanagerConfiguration(ctx, orgID, amConfig); err != nil {
+			return fmt.Errorf("failed to write AlertmanagerConfig: %w", err)
+		}
+
+		err = ms.migrationStore.SetOrgMigrationSummary(ctx, orgID, om.summary)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return pairs, nil
+}
+
+func extractNestedLegacyRoute(config *apiModels.PostableUserConfig) *apiModels.Route {
+	for _, r := range config.AlertmanagerConfig.Route.Routes {
+		if len(r.ObjectMatchers) == 1 && r.ObjectMatchers[0].Name == UseLegacyChannelsLabel {
+			return r
+		}
+	}
+	return nil
+}
+
 // MigrateAlert migrates a single dashboard alert from legacy alerting to unified alerting.
 func (ms *MigrationService) MigrateAlert(ctx context.Context, orgID int64, dashboardID int64, panelID int64) (*apiModels.DashboardUpgrade, error) {
 	ms.mtx.Lock()

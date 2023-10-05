@@ -19,6 +19,7 @@ import (
 	legacyalerting "github.com/grafana/grafana/pkg/services/alerting"
 	"github.com/grafana/grafana/pkg/services/datasources/guardian"
 	datasourceService "github.com/grafana/grafana/pkg/services/datasources/service"
+	encryptionservice "github.com/grafana/grafana/pkg/services/encryption/service"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/folder/folderimpl"
 	"github.com/grafana/grafana/pkg/services/licensing/licensingtest"
@@ -85,19 +86,20 @@ func NewTestMigrationStore(t *testing.T, sqlStore *sqlstore.SQLStore, cfg *setti
 	legacyAlertStore := legacyalerting.ProvideAlertStore(sqlStore, cache, cfg, nil, features)
 
 	return &migrationStore{
-		log:                          &logtest.Fake{},
-		cfg:                          cfg,
-		store:                        sqlStore,
-		kv:                           kvstore.ProvideService(sqlStore),
-		alertingStore:                &alertingStore,
-		encryptionService:            fake_secrets.NewFakeSecretsService(),
-		dashboardService:             dashboardService,
-		folderService:                folderService,
-		dataSourceCache:              datasourceService.ProvideCacheService(cache, sqlStore, guardian.ProvideGuardian()),
-		folderPermissions:            folderPermissions,
-		dashboardPermissions:         dashboardPermissions,
-		orgService:                   orgService,
-		legacyAlertStore:             legacyAlertStore,
-		dashboardProvisioningService: dashboardService,
+		log:                            &logtest.Fake{},
+		cfg:                            cfg,
+		store:                          sqlStore,
+		kv:                             kvstore.ProvideService(sqlStore),
+		alertingStore:                  &alertingStore,
+		encryptionService:              fake_secrets.NewFakeSecretsService(),
+		dashboardService:               dashboardService,
+		folderService:                  folderService,
+		dataSourceCache:                datasourceService.ProvideCacheService(cache, sqlStore, guardian.ProvideGuardian()),
+		folderPermissions:              folderPermissions,
+		dashboardPermissions:           dashboardPermissions,
+		orgService:                     orgService,
+		legacyAlertStore:               legacyAlertStore,
+		legacyAlertNotificationService: legacyalerting.ProvideService(sqlStore, encryptionservice.SetupTestService(t), nil),
+		dashboardProvisioningService:   dashboardService,
 	}
 }

@@ -36,7 +36,7 @@ import (
 //     Responses:
 //       200: Ack
 
-// swagger:route POST /api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID} upgrade RoutePostUpgradeAlert
+// swagger:route POST /api/v1/upgrade/dashboards/{DashboardID}/panels/{PanelID} upgrade RoutePostUpgradeAlert
 //
 // Upgrade single legacy dashboard alert.
 //
@@ -46,7 +46,7 @@ import (
 //     Responses:
 //       200: DashboardUpgrade
 
-// swagger:route POST /api/v1/upgrade/dashboard/{DashboardID} upgrade RoutePostUpgradeDashboard
+// swagger:route POST /api/v1/upgrade/dashboards/{DashboardID} upgrade RoutePostUpgradeDashboard
 //
 // Upgrade all legacy dashboard alerts on a dashboard.
 //
@@ -55,6 +55,26 @@ import (
 //
 //     Responses:
 //       200: DashboardUpgrade
+
+// swagger:route POST /api/v1/upgrade/channels upgrade RoutePostUpgradeAllChannels
+//
+// Upgrade all legacy notification channels for current organization.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       200: []ContactPair
+
+// swagger:route POST /api/v1/upgrade/channels/{ChannelID} upgrade RoutePostUpgradeChannel
+//
+// Upgrade a single legacy notification channel for current organization.
+//
+//     Produces:
+//     - application/json
+//
+//     Responses:
+//       200: ContactPair
 
 // swagger:parameters RoutePostUpgradeAlert RoutePostUpgradeDashboard
 type DashboardParam struct {
@@ -70,6 +90,14 @@ type PanelParam struct {
 	// in:path
 	// required:true
 	PanelID string
+}
+
+// swagger:parameters RoutePostUpgradeChannel
+type ChannelParam struct {
+	// Channel ID of legacy notification channel.
+	// in:path
+	// required:true
+	ChannelID string
 }
 
 // swagger:model
@@ -220,5 +248,7 @@ type ContactPointUpgrade struct {
 	UID                   string `json:"uid"`
 	Type                  string `json:"type"`
 	DisableResolveMessage bool   `json:"disableResolveMessage"`
-	Modified              bool   `json:"modified"`
+
+	RouteLabel string `json:"routeLabel"`
+	Modified   bool   `json:"modified"`
 }

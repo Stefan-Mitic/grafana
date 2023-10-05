@@ -62,9 +62,13 @@ func (api *API) authorize(method, path string) web.Handler {
 		return middleware.ReqOrgAdmin
 	case http.MethodDelete + "/api/v1/upgrade/org":
 		return middleware.ReqOrgAdmin
-	case http.MethodPost + "/api/v1/upgrade/dashboard/{DashboardID}":
+	case http.MethodPost + "/api/v1/upgrade/dashboards/{DashboardID}":
 		return middleware.ReqOrgAdmin
-	case http.MethodPost + "/api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID}":
+	case http.MethodPost + "/api/v1/upgrade/dashboards/{DashboardID}/panels/{PanelID}":
+		return middleware.ReqOrgAdmin
+	case http.MethodPost + "/api/v1/upgrade/channels":
+		return middleware.ReqOrgAdmin
+	case http.MethodPost + "/api/v1/upgrade/channels/{ChannelID}":
 		return middleware.ReqOrgAdmin
 
 	// Grafana, Prometheus-compatible Paths

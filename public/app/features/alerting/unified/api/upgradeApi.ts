@@ -95,6 +95,7 @@ export interface ContactPointUpgrade {
   uid: string;
   type: string;
   disableResolveMessage: boolean;
+  routeLabel: string,
   modified: boolean;
 }
 
@@ -104,9 +105,60 @@ function isFetchBaseQueryError(error: unknown): error is { error: FetchError } {
 
 export const upgradeApi = alertingApi.injectEndpoints({
   endpoints: (build) => ({
+    upgradeChannel: build.mutation<ContactPair, {channelId: number}>({
+      query: ({channelId}) => ({
+        url: `/api/v1/upgrade/channels/${channelId}`,
+        method: 'POST',
+        showSuccessAlert: false,
+        showErrorAlert: false,
+      }),
+      invalidatesTags: ['OrgMigrationSummary'],
+      async onQueryStarted(undefined, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled
+          if(data.error) {
+            dispatch(notifyApp(createWarningNotification(`Legacy notification channel upgrade failed`, data.error)));
+          } else {
+            dispatch(notifyApp(createSuccessNotification(`Legacy notification channel upgraded`)));
+          }
+        } catch (e) {
+          if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
+            dispatch(notifyApp(createErrorNotification('Legacy notification channel upgrade request failed', e.error.data.error)));
+          } else {
+            dispatch(notifyApp(createErrorNotification(`Legacy notification channel upgrade request failed`)));
+          }
+        }
+      },
+    }),
+    upgradeAllChannels: build.mutation<ContactPair[], void>({
+      query: () => ({
+        url: `/api/v1/upgrade/channels`,
+        method: 'POST',
+        showSuccessAlert: false,
+        showErrorAlert: false,
+      }),
+      invalidatesTags: ['OrgMigrationSummary'],
+      async onQueryStarted(undefined, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled
+          const nestedError = (data ?? []).map((pair) => pair.error ?? '').filter((error) => !!error);
+          if(nestedError.length > 0) {
+            dispatch(notifyApp(createWarningNotification(`Legacy notification channels upgrade failed`, uniq(nestedError).join('\n'))));
+          } else {
+            dispatch(notifyApp(createSuccessNotification(`Legacy notification channels upgraded`)));
+          }
+        } catch (e) {
+          if (isFetchBaseQueryError(e) && isFetchError(e.error)) {
+            dispatch(notifyApp(createErrorNotification('Legacy notification channels upgrade request failed', e.error.data.error)));
+          } else {
+            dispatch(notifyApp(createErrorNotification(`Legacy notification channels upgrade request failed`)));
+          }
+        }
+      },
+    }),
     upgradeAlert: build.mutation<DashboardUpgrade, {dashboardId: number, panelId: number}>({
       query: ({dashboardId, panelId}) => ({
-        url: `/api/v1/upgrade/dashboard/${dashboardId}/panel/${panelId}`,
+        url: `/api/v1/upgrade/dashboards/${dashboardId}/panels/${panelId}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
@@ -132,7 +184,7 @@ export const upgradeApi = alertingApi.injectEndpoints({
     }),
     upgradeDashboard: build.mutation<DashboardUpgrade, {dashboardId: number}>({
       query: ({dashboardId}) => ({
-        url: `/api/v1/upgrade/dashboard/${dashboardId}`,
+        url: `/api/v1/upgrade/dashboards/${dashboardId}`,
         method: 'POST',
         showSuccessAlert: false,
         showErrorAlert: false,
@@ -204,8 +256,8 @@ export const upgradeApi = alertingApi.injectEndpoints({
         const channelMap: Record<string, string> = {};
         const defaultContacts = new Set(summary.migratedChannels.filter((channelPair) => channelPair.legacyChannel?.isDefault && channelPair.contactPoint?.name).map((channelPair) => channelPair.contactPoint?.name ?? ''));
         summary.migratedChannels.forEach((channelPair) => {
-          if (channelPair.contactPoint?.name && !channelPair?.legacyChannel?.isDefault && channelPair?.legacyChannel?.uid) {
-            channelMap[`__contacts_${channelPair.legacyChannel.uid}__`] = channelPair.contactPoint.name;
+          if (channelPair.contactPoint?.name && !channelPair?.legacyChannel?.isDefault && channelPair?.contactPoint?.routeLabel) {
+            channelMap[channelPair.contactPoint.routeLabel] = channelPair.contactPoint.name;
           }
         });
 

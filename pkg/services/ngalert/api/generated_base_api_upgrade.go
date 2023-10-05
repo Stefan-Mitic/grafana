@@ -22,6 +22,8 @@ type UpgradeApi interface {
 	RouteDeleteOrgUpgrade(*contextmodel.ReqContext) response.Response
 	RouteGetOrgUpgrade(*contextmodel.ReqContext) response.Response
 	RoutePostUpgradeAlert(*contextmodel.ReqContext) response.Response
+	RoutePostUpgradeAllChannels(*contextmodel.ReqContext) response.Response
+	RoutePostUpgradeChannel(*contextmodel.ReqContext) response.Response
 	RoutePostUpgradeDashboard(*contextmodel.ReqContext) response.Response
 	RoutePostUpgradeOrg(*contextmodel.ReqContext) response.Response
 }
@@ -37,6 +39,14 @@ func (f *UpgradeApiHandler) RoutePostUpgradeAlert(ctx *contextmodel.ReqContext) 
 	dashboardIDParam := web.Params(ctx.Req)[":DashboardID"]
 	panelIDParam := web.Params(ctx.Req)[":PanelID"]
 	return f.handleRoutePostUpgradeAlert(ctx, dashboardIDParam, panelIDParam)
+}
+func (f *UpgradeApiHandler) RoutePostUpgradeAllChannels(ctx *contextmodel.ReqContext) response.Response {
+	return f.handleRoutePostUpgradeAllChannels(ctx)
+}
+func (f *UpgradeApiHandler) RoutePostUpgradeChannel(ctx *contextmodel.ReqContext) response.Response {
+	// Parse Path Parameters
+	channelIDParam := web.Params(ctx.Req)[":ChannelID"]
+	return f.handleRoutePostUpgradeChannel(ctx, channelIDParam)
 }
 func (f *UpgradeApiHandler) RoutePostUpgradeDashboard(ctx *contextmodel.ReqContext) response.Response {
 	// Parse Path Parameters
@@ -72,23 +82,45 @@ func (api *API) RegisterUpgradeApiEndpoints(srv UpgradeApi, m *metrics.API) {
 			),
 		)
 		group.Post(
-			toMacaronPath("/api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID}"),
+			toMacaronPath("/api/v1/upgrade/dashboards/{DashboardID}/panels/{PanelID}"),
 			requestmeta.SetOwner(requestmeta.TeamAlerting),
-			api.authorize(http.MethodPost, "/api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID}"),
+			api.authorize(http.MethodPost, "/api/v1/upgrade/dashboards/{DashboardID}/panels/{PanelID}"),
 			metrics.Instrument(
 				http.MethodPost,
-				"/api/v1/upgrade/dashboard/{DashboardID}/panel/{PanelID}",
+				"/api/v1/upgrade/dashboards/{DashboardID}/panels/{PanelID}",
 				api.Hooks.Wrap(srv.RoutePostUpgradeAlert),
 				m,
 			),
 		)
 		group.Post(
-			toMacaronPath("/api/v1/upgrade/dashboard/{DashboardID}"),
+			toMacaronPath("/api/v1/upgrade/channels"),
 			requestmeta.SetOwner(requestmeta.TeamAlerting),
-			api.authorize(http.MethodPost, "/api/v1/upgrade/dashboard/{DashboardID}"),
+			api.authorize(http.MethodPost, "/api/v1/upgrade/channels"),
 			metrics.Instrument(
 				http.MethodPost,
-				"/api/v1/upgrade/dashboard/{DashboardID}",
+				"/api/v1/upgrade/channels",
+				api.Hooks.Wrap(srv.RoutePostUpgradeAllChannels),
+				m,
+			),
+		)
+		group.Post(
+			toMacaronPath("/api/v1/upgrade/channels/{ChannelID}"),
+			requestmeta.SetOwner(requestmeta.TeamAlerting),
+			api.authorize(http.MethodPost, "/api/v1/upgrade/channels/{ChannelID}"),
+			metrics.Instrument(
+				http.MethodPost,
+				"/api/v1/upgrade/channels/{ChannelID}",
+				api.Hooks.Wrap(srv.RoutePostUpgradeChannel),
+				m,
+			),
+		)
+		group.Post(
+			toMacaronPath("/api/v1/upgrade/dashboards/{DashboardID}"),
+			requestmeta.SetOwner(requestmeta.TeamAlerting),
+			api.authorize(http.MethodPost, "/api/v1/upgrade/dashboards/{DashboardID}"),
+			metrics.Instrument(
+				http.MethodPost,
+				"/api/v1/upgrade/dashboards/{DashboardID}",
 				api.Hooks.Wrap(srv.RoutePostUpgradeDashboard),
 				m,
 			),

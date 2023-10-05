@@ -442,6 +442,10 @@ const AlertTabContent = React.memo(UpgradeTabContent<DashboardUpgrade>);
 
 const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
   const styles = useStyles2(getStyles);
+
+  const { useUpgradeChannelMutation } = upgradeApi;
+  const [migrateChannel] = useUpgradeChannelMutation();
+
   return useMemo(() => (
     [
       {
@@ -482,8 +486,8 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
         label: 'Notification Policy',
         renderCell: ({ data: contactPair }) => {
           return (<>
-            {contactPair?.contactPoint && (
-              <Matchers matchers={[[`__contacts_${contactPair.contactPoint.uid}__`, MatcherOperator.equal, "true"]]} />
+            {contactPair?.contactPoint?.routeLabel && (
+              <Matchers matchers={[[contactPair.contactPoint.routeLabel, MatcherOperator.equal, "true"]]} />
             )}
           </>)
         },
@@ -534,8 +538,32 @@ const useChannelColumns = (): Array<DynamicTableColumnProps<ContactPair>> => {
         },
         size: '100px',
       },
+      {
+        id: 'actions',
+        label: 'Actions',
+        renderCell: ({ data: pair }) => {
+          if (!pair?.legacyChannel) {
+            return null;
+          }
+          if (pair.legacyChannel.id <= 0) {
+            return null;
+          }
+          return (
+            <Stack gap={0.5} alignItems="center">
+              <ActionIcon
+                aria-label="re-upgrade legacy notification channel"
+                key="upgrade-channel"
+                icon="sync"
+                tooltip="re-upgrade legacy notification channel"
+                onClick={() => migrateChannel({channelId: pair.legacyChannel.id})}
+              />
+            </Stack>
+          )
+        },
+        size: '70px',
+      },
     ]
-    ), [styles.textLink, styles.warningIcon]);
+    ), [styles.textLink, styles.warningIcon, migrateChannel]);
 }
 
 const useAlertColumns = (): Array<DynamicTableColumnProps<DashboardUpgrade>> => {

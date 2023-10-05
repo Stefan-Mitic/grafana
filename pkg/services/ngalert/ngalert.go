@@ -251,20 +251,6 @@ func (ng *AlertNG) init() error {
 		int64(ng.Cfg.UnifiedAlerting.DefaultRuleEvaluationInterval.Seconds()),
 		int64(ng.Cfg.UnifiedAlerting.BaseInterval.Seconds()), ng.Log)
 
-	//upgradeService, err := migrationStore.ProvideMigrationStore(
-	//	ng.Cfg,
-	//	ng.SQLStore,
-	//	ng.KVStore,
-	//	ng.store,
-	//	ng.SecretsService,
-	//	ng.dashboardService,
-	//	ng.folderService,
-	//	ng.DataSourceCache,
-	//	ng.folderPermissions,
-	//	ng.dashboardPermissions,
-	//	ng.orgService,
-	//	ng.legacyAlertStore)
-
 	upgradeService, err := migration.ProvideService(
 		nil,
 		ng.Cfg,

@@ -16,6 +16,8 @@ import (
 type UpgradeService interface {
 	MigrateAlert(ctx context.Context, orgID int64, dashboardID int64, panelID int64) (*apiModels.DashboardUpgrade, error)
 	MigrateDashboardAlerts(ctx context.Context, orgID int64, dashboardID int64) (*apiModels.DashboardUpgrade, error)
+	MigrateChannel(ctx context.Context, orgID int64, channelID int64) (*apiModels.ContactPair, error)
+	MigrateAllChannels(ctx context.Context, orgID int64) ([]*apiModels.ContactPair, error)
 	MigrateOrg(ctx context.Context, orgID int64) (*apiModels.OrgMigrationSummary, error)
 	GetOrgMigrationSummary(ctx context.Context, orgID int64) (*apiModels.OrgMigrationSummary, error)
 	RevertOrg(ctx context.Context, orgID int64) error
@@ -118,4 +120,35 @@ func (srv *UpgradeSrv) RoutePostUpgradeDashboard(c *contextmodel.ReqContext, das
 		return response.Error(http.StatusInternalServerError, "Server error", err)
 	}
 	return response.JSON(http.StatusOK, dashUpgrade)
+}
+
+func (srv *UpgradeSrv) RoutePostUpgradeChannel(c *contextmodel.ReqContext, channelIdParam string) response.Response {
+	// If UA is enabled, we don't want to allow the user to use this endpoint to upgrade anymore.
+	if srv.cfg.UnifiedAlerting.IsEnabled() {
+		return response.Error(http.StatusForbidden, "This endpoint is not available with UA enabled.", nil)
+	}
+
+	channelId, err := strconv.ParseInt(channelIdParam, 10, 64)
+	if err != nil {
+		return ErrResp(http.StatusBadRequest, err, "failed to parse channelId")
+	}
+
+	pair, err := srv.upgradeService.MigrateChannel(c.Req.Context(), c.OrgID, channelId)
+	if err != nil {
+		return response.Error(http.StatusInternalServerError, "Server error", err)
+	}
+	return response.JSON(http.StatusOK, pair)
+}
+
+func (srv *UpgradeSrv) RoutePostUpgradeAllChannels(c *contextmodel.ReqContext) response.Response {
+	// If UA is enabled, we don't want to allow the user to use this endpoint to upgrade anymore.
+	if srv.cfg.UnifiedAlerting.IsEnabled() {
+		return response.Error(http.StatusForbidden, "This endpoint is not available with UA enabled.", nil)
+	}
+
+	pair, err := srv.upgradeService.MigrateAllChannels(c.Req.Context(), c.OrgID)
+	if err != nil {
+		return response.Error(http.StatusInternalServerError, "Server error", err)
+	}
+	return response.JSON(http.StatusOK, pair)
 }

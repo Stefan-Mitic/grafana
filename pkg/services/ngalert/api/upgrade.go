@@ -34,3 +34,11 @@ func (f *UpgradeApiHandler) handleRoutePostUpgradeAlert(ctx *contextmodel.ReqCon
 func (f *UpgradeApiHandler) handleRoutePostUpgradeDashboard(ctx *contextmodel.ReqContext, dashboardIdParam string) response.Response {
 	return f.svc.RoutePostUpgradeDashboard(ctx, dashboardIdParam)
 }
+
+func (f *UpgradeApiHandler) handleRoutePostUpgradeChannel(ctx *contextmodel.ReqContext, channelIdParam string) response.Response {
+	return f.svc.RoutePostUpgradeChannel(ctx, channelIdParam)
+}
+
+func (f *UpgradeApiHandler) handleRoutePostUpgradeAllChannels(ctx *contextmodel.ReqContext) response.Response {
+	return f.svc.RoutePostUpgradeAllChannels(ctx)
+}
