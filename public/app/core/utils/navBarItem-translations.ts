@@ -56,6 +56,8 @@ export function getNavTitle(navId: string | undefined) {
       return t('nav.oncall.title', 'OnCall');
     case 'alerting-legacy':
       return t('nav.alerting-legacy.title', 'Alerting (legacy)');
+    case 'alerting-upgrade':
+      return t('nav.alerting-upgrade.title', 'Alerting upgrade');
     case 'alert-home':
       return t('nav.alerting-home.title', 'Home');
     case 'alert-list':

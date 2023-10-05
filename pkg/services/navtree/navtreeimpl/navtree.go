@@ -397,6 +397,13 @@ func (s *ServiceImpl) buildLegacyAlertNavLinks(c *contextmodel.ReqContext) *navt
 		})
 	}
 
+	if s.cfg.IsFeatureToggleEnabled(featuremgmt.FlagAlertingPreviewUA) && c.HasRole(org.RoleAdmin) {
+		alertChildNavs = append(alertChildNavs, &navtree.NavLink{
+			Text: "Upgrade Alerting", Id: "alerting-upgrade", Url: s.cfg.AppSubURL + "/alerting-legacy/upgrade",
+			Icon: "cog",
+		})
+	}
+
 	var alertNav = navtree.NavLink{
 		Text:       "Alerting",
 		SubTitle:   "Learn about problems in your systems moments after they occur",

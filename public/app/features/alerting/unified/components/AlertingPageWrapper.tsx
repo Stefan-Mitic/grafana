@@ -42,8 +42,10 @@ export const AlertingPageWrapper = ({ children, pageId, pageNav, actions, isLoad
     <Features features={FEATURES}>
       <Page pageNav={pageNav} navId={pageId} actions={actions}>
         <Page.Contents isLoading={isLoading}>
-          <UAPreviewNotice />
-          {children}
+          <div>
+            <UAPreviewNotice />
+            {children}
+          </div>
         </Page.Contents>
       </Page>
       {showFeatureToggle ? <ToggleFeatures defaultOpen={true} /> : null}

@@ -84,6 +84,11 @@ const legacyRoutes: RouteDescriptor[] = [
       () => import(/* webpackChunkName: "EditNotificationChannelLegacy"*/ 'app/features/alerting/EditNotificationChannelPage')
     ),
   },
+  {
+    path: '/alerting-legacy/upgrade',
+    roles: () => ['Admin'],
+    component: SafeDynamicImport(() => import(/* webpackChunkName: "AlertingUpgrade" */ 'app/features/alerting/Upgrade')),
+  },
 ];
 
 const unifiedRoutes: RouteDescriptor[] = [

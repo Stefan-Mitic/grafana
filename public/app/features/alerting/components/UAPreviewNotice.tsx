@@ -1,7 +1,9 @@
 import React from 'react';
 
-import { config, locationService } from '@grafana/runtime';
+import { config } from '@grafana/runtime';
 import { Alert, Button } from '@grafana/ui';
+
+import { disablePreviewAlerting } from '../Upgrade';
 
 export const LOCAL_STORAGE_KEY = 'grafana.legacyalerting.unifiedalertingpreview';
 
@@ -15,7 +17,7 @@ const UAPreviewNotice = () => (
           Please contact your administrator to upgrade permanently.
         </p>
         <Button fill="text" icon="book" size="sm">
-          <a href="https://grafana.com/docs/grafana/latest/alerting/migrating-alerts/">
+          <a href="https://grafana.com/docs/grafana/latest/alerting/set-up/migrating-alerts/">
             Read documentation
           </a>
         </Button>{' '}
@@ -31,11 +33,5 @@ const UAPreviewNotice = () => (
     ) : null}
   </>
 );
-
-export function disablePreviewAlerting() {
-  locationService.push(`/alerting/list?__feature.alertingPreviewUA=true`);
-  // Reload page to fix navbar.
-  window.location.reload();
-}
 
 export { UAPreviewNotice };
