@@ -53,7 +53,7 @@ func NewTestMigrationStore(t testing.TB, sqlStore *sqlstore.SQLStore, cfg *setti
 		SQLStore: sqlStore,
 		Cfg:      cfg.UnifiedAlerting,
 	}
-	bus := bus.ProvideBus(tracing.NewFakeTracer())
+	bus := bus.ProvideBus(tracing.InitializeTracerForTest())
 	folderStore := folderimpl.ProvideDashboardFolderStore(sqlStore)
 	dashboardService, dashboardStore := testutil.SetupDashboardService(t, sqlStore, folderStore, cfg)
 	folderService := testutil.SetupFolderService(t, cfg, sqlStore, dashboardStore, folderStore, bus)

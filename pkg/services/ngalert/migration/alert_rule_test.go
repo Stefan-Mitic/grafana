@@ -120,7 +120,7 @@ func TestAddMigrationInfo(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			labels, annotations := addMigrationInfo(tc.alert, tc.dashboard, nil)
+			labels, annotations := addMigrationInfo(&logtest.Fake{}, tc.alert, tc.dashboard, nil)
 			require.Equal(t, tc.expectedLabels, labels)
 			require.Equal(t, tc.expectedAnnotations, annotations)
 		})
@@ -200,12 +200,11 @@ func TestMakeAlertRule(t *testing.T) {
 	})
 
 	t.Run("migrate message template", func(t *testing.T) {
-		m := newTestOrgMigration(t, 1)
 		da := createTestDashAlert()
 		da.Message = "Instance ${instance} is down"
 		cnd := createTestDashAlertCondition()
 
-		ar, err := m.makeAlertRule(&logtest.Fake{}, cnd, da, dashboard, "folder")
+		ar, err := makeAlertRule(&logtest.Fake{}, cnd, da, info, nil)
 		require.Nil(t, err)
 		expected :=
 			"{{- $mergedLabels := mergeLabelValues $values -}}\n" +

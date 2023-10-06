@@ -51,7 +51,7 @@ func NewTestMigrationService(t testing.TB, sqlStore *sqlstore.SQLStore, cfg *set
 	migrationStore := migStore.NewTestMigrationStore(t, sqlStore, cfg)
 
 	ms, err := ProvideService(
-		serverlock.ProvideService(sqlStore, tracing.NewFakeTracer()),
+		serverlock.ProvideService(sqlStore, tracing.InitializeTracerForTest()),
 		cfg,
 		sqlStore,
 		migrationStore,
