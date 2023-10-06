@@ -112,7 +112,7 @@ export const UpgradeTabs = ({ alertCount, contactCount }: UpgradeTabsProps) => {
         collapseText={'Upgrade guide'}
         collapseTooltip={'Show upgrade guide'}
         severity={'info'}
-        justifyContent={'flex-start'}
+        collapseJustify={'flex-start'}
       >
         <p>
           Preview of how your existing alert rules and notification channels wll be upgraded to the new Grafana
